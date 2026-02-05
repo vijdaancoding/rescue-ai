@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const navigate = useNavigate()
 
-  const login = (operatorId: string, password: string) => {
+  const login = (operatorId: string, _password: string) => {
     // Mock authentication - in production, this would call an API
     const mockUser: User = {
       id: '1',

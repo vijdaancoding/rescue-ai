@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
-import { Phone, PhoneOff, Activity, Clock, Wifi, MapPin, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react'
+import { Phone, PhoneOff, Activity, Clock, Wifi, MapPin, TrendingUp, CheckCircle } from 'lucide-react'
 
 export default function Dashboard() {
   const navigate = useNavigate()

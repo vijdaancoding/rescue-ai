@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
-import { Radio, AlertTriangle, Bell, Phone, Volume2, Activity, Mic, Pause, Play, PhoneOff } from 'lucide-react'
+import { AlertTriangle, Bell, Phone, Volume2, Activity, Mic, Pause, Play, PhoneOff } from 'lucide-react'
 
 export default function LiveCall() {
   const [transcriptText, setTranscriptText] = useState('یہ ایک ایمرجنسی ہے... (This is an emergency...)')
   const [soundWave, setSoundWave] = useState<number[]>([])
   const [isRecording, setIsRecording] = useState(true)
   const [callDuration, setCallDuration] = useState(0)
-  const [threatLevel, setThreatLevel] = useState(34)
+  const [threatLevel] = useState(34)
 
   // Simulate sound wave animation
   useEffect(() => {
