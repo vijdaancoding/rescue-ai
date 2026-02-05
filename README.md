@@ -1,6 +1,11 @@
-# Rescue AI - Emergency Dispatcher Dashboard
+# 🚨 Rescue AI - Emergency Dispatcher Dashboard
 
-A modern, responsive emergency dispatcher dashboard system built with React, TypeScript, and Tailwind CSS. This application provides real-time call management, Urdu transcription, analytics, and comprehensive emergency response coordination.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![React](https://img.shields.io/badge/React-18.2.0-blue.svg)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.2.2-blue.svg)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4.1-38B2AC.svg)](https://tailwindcss.com/)
+
+A modern, professional emergency dispatcher dashboard system built with React, TypeScript, and Tailwind CSS. This application provides real-time call management, Urdu transcription, AI-powered analytics, and comprehensive emergency response coordination for Rescue 1122 and emergency services.
 
 ## 🚀 Features
 
