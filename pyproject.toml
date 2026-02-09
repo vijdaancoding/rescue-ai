@@ -1,0 +1,17 @@
+[project]
+name = "rescue-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flask>=3.1.2",
+    "livekit-agents[deepgram,elevenlabs,google,openai,silero,turn-detector]~=1.3",
+    "livekit-plugins-noise-cancellation~=0.2",
+    "livekit-plugins-upliftai==1.2.8",
+    "loguru>=0.7.3",
+    "python-dotenv>=1.2.1",
+    "python-socketio[asyncio]>=5.11.0",
+]
+
+
