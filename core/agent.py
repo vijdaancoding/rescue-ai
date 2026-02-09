@@ -38,10 +38,10 @@ You are a knowledgeable Pakistani, who answers questions about Pakistans history
 
 async def entrypoint(ctx: agents.JobContext):
     
-    tts = elevenlabs.TTS(
-        voice_id="ODq5zmih8GrVes37Dizd", 
-        model="eleven_v3",
-        language="ur"
+    tts = openai.TTS(
+    model="gpt-4o-mini-tts",
+    voice="ash",
+    instructions="Speak in a friendly and conversational tone.",
     )
     
     session = AgentSession(
@@ -58,7 +58,7 @@ async def entrypoint(ctx: agents.JobContext):
             # LiveKit Cloud enhanced noise cancellation
             # - If self-hosting, omit this parameter
             # - For telephony applications, use `BVCTelephony` for best results
-            # noise_cancellation=noise_cancellation.BVC(), 
+            noise_cancellation=noise_cancellation.BVC(), 
         ),
     )
 

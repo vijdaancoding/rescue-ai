@@ -22,13 +22,6 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 room_name = "rescue_ai"
 agent_name = "emergency_agent"
 
-tts = TTS( 
-    api_key=UPLIFTAI_API_KEY,
-    voice_id="v_30s70t3a",
-    output_format="MP3_22050_32",
-)
-
-
 async def list_participants(room_name: str):
     lkapi = api.LiveKitAPI()  # uses LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET envs
     try:
@@ -46,9 +39,9 @@ async def list_participants(room_name: str):
 async def entrypoint(ctx: agents.JobContext):
     session = AgentSession(
         preemptive_generation=True,
-        stt=openai.STT(model="gpt-4o-transcribe"),
+        stt=openai.STT(model="gpt-4o-transcribe", language="ur"),
         llm=openai.LLM(model="gpt-4o-mini", api_key=OPENAI_API_KEY),
-        tts=tts,
+        tts=openai.TTS(model="gpt-4o-mini-tts", voice="ash", speed=1.25, instructions="Speak in Urdu like Police Officer Helpline."),
         vad=silero.VAD.load(),
     )
 
