@@ -1,8 +1,10 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import json
 from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions, WorkerType, inference
+from livekit.agents.voice.room_io import RoomOptions
 from livekit.plugins import upliftai, silero
 
 AGENT_NAME = "rescue-operator"
@@ -48,6 +50,19 @@ class Assistant(Agent):
 
 
 async def entrypoint(ctx: agents.JobContext):
+    # Parse caller identity from dispatch metadata so we target the right participant.
+    # In production this will be the Twilio SIP participant's identity.
+    meta = {}
+    if ctx.job.metadata:
+        try:
+            meta = json.loads(ctx.job.metadata)
+        except json.JSONDecodeError:
+            pass
+
+    caller_identity: str | None = meta.get("caller_identity")
+
+    await ctx.connect()
+
     tts = upliftai.TTS(
         voice_id="v_meklc281",
         output_format="MP3_22050_32",
@@ -60,10 +75,13 @@ async def entrypoint(ctx: agents.JobContext):
         vad=silero.VAD.load(),
     )
 
+    # room_options.participant_identity tells the session which participant to
+    # listen to — it waits internally for that participant to join the room.
+    # In production this will be the Twilio SIP participant's identity.
     await session.start(
         room=ctx.room,
         agent=Assistant(),
-        room_input_options=RoomInputOptions(),
+        room_options=RoomOptions(participant_identity=caller_identity),
     )
 
     await session.generate_reply(
