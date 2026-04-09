@@ -209,3 +209,6 @@ __marimo__/
 # Claude 
 CLAUDE.md 
 .claude/
+
+# Frontend 
+frontend/node_modules
