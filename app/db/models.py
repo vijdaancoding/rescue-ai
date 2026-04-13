@@ -24,3 +24,8 @@ class CallSession(Base):
     end_time = Column(DateTime, nullable=True)
     status = Column(String, default="Incoming") # Incoming, Active, Dispatched, FalseAlarm
     audio_path_encrypted = Column(String, nullable=True)
+    caller_phone = Column(String, nullable=True)
+    caller_city = Column(String, nullable=True)
+    caller_state = Column(String, nullable=True)
+    caller_country = Column(String, nullable=True)
+    caller_zip = Column(String, nullable=True)
