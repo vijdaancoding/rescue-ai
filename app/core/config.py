@@ -9,6 +9,13 @@ class Settings(BaseSettings):
     LIVEKIT_URL: str
     LIVEKIT_API_KEY: str
     LIVEKIT_API_SECRET: str
+    LIVEKIT_SIP_URI: str = ""  # e.g. sip:xxxxx.sip.livekit.cloud
+    LIVEKIT_SIP_USERNAME: str = ""
+    LIVEKIT_SIP_PASSWORD: str = ""
+
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
