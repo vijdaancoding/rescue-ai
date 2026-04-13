@@ -210,5 +210,9 @@ __marimo__/
 CLAUDE.md 
 .claude/
 
-# Frontend 
+# Archives 
 frontend/node_modules
+core/
+
+# ML models 
+models/
