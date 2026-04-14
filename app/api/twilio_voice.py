@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, Response
@@ -22,21 +23,42 @@ async def twilio_voice_webhook(
 ):
     """
     Twilio hits this when someone calls our number.
-    We record the caller phone + geo, then forward the audio to LiveKit
-    via SIP. LiveKit's inbound trunk + dispatch rule create the room
-    and auto-dispatch the rescue-operator agent.
+    Checks if the user just submitted exact GPS via the PWA.
+    If not, falls back to Twilio's rough cell-tower estimates.
     """
-    call = CallSession(
-        caller_hash=f"twilio-{CallSid}",
-        status="Active",
-        caller_phone=From or None,
-        caller_city=FromCity or None,
-        caller_state=FromState or None,
-        caller_country=FromCountry or None,
-        caller_zip=FromZip or None,
+
+    # 1. Look for a pending PWA location submission for this phone number
+    existing_session = (
+        db.query(CallSession)
+        .filter(
+            CallSession.caller_phone == From,
+            CallSession.status == "WaitingForCall"
+        )
+        .order_by(CallSession.start_time.desc())
+        .first()
     )
-    db.add(call)
-    db.commit()
+
+    if existing_session:
+        # User used the PWA! Update the pending session with Twilio's live Call ID
+        existing_session.caller_hash = f"twilio-{CallSid}"
+        existing_session.status = "Active"
+        existing_session.start_time = datetime.now(timezone.utc)
+        db.commit()
+    else:
+        # User dialed manually (No PWA used). Create a brand new session using Twilio's data.
+        call = CallSession(
+            id=uuid.uuid4(),
+            caller_hash=f"twilio-{CallSid}",
+            status="Active",
+            start_time=datetime.now(timezone.utc),
+            caller_phone=From or None,
+            caller_city=FromCity or None,
+            caller_state=FromState or None,
+            caller_country=FromCountry or None,
+            caller_zip=FromZip or None,
+        )
+        db.add(call)
+        db.commit()
 
     sip_host = settings.LIVEKIT_SIP_URI.replace("sip:", "").strip()
     sip_target = f"sip:{settings.TWILIO_PHONE_NUMBER}@{sip_host};transport=tcp"
@@ -57,6 +79,7 @@ async def twilio_call_status(
     CallSid: str = Form(default=""),
     CallStatus: str = Form(default=""),
 ):
+    """Handles call hang-ups and status changes"""
     if CallStatus in ("completed", "failed", "busy", "no-answer", "canceled"):
         call = (
             db.query(CallSession)
