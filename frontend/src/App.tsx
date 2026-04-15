@@ -8,6 +8,7 @@ import LiveCall from './pages/LiveCall'
 import CallHistory from './pages/CallHistory'
 import Settings from './pages/Settings'
 import TestCaller from './pages/TestCaller'
+import Dispatch from './pages/Dispatch'
 
 function App() {
   return (
@@ -39,6 +40,11 @@ function App() {
           <Route path="/settings" element={
             <ProtectedRoute>
               <Settings />
+            </ProtectedRoute>
+          } />
+          <Route path="/dispatch/:callId" element={
+            <ProtectedRoute>
+              <Dispatch />
             </ProtectedRoute>
           } />
           {/* No auth required — accessed via URL params from the live call page */}

@@ -1,17 +1,66 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
 import json
-from livekit import agents
-from livekit.agents import AgentSession, Agent, RoomInputOptions, WorkerType, inference
+import logging
+import os
+import time
+from typing import AsyncGenerator
+
+import httpx
+from livekit import agents, rtc
+from livekit.agents import AgentSession, Agent, WorkerType, inference
 from livekit.agents.voice.room_io import RoomOptions
 from livekit.plugins import upliftai, silero
+from livekit.plugins.turn_detector.multilingual import MultilingualModel
+
+logger = logging.getLogger(__name__)
 
 AGENT_NAME = "rescue-operator"
 
+# URL of the FastAPI backend — agent posts transcripts here for analysis.
+_BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+# Per-call analysis throttle settings
+_MIN_WORDS = 20
+_COOLDOWN_SEC = 8
+
+# ── Pre-synthesized greeting cache ─────────────────────────────────────────────
+# Synthesized once at the first call handled by this worker process.
+# Subsequent calls reuse cached frames — no TTS round-trip for the greeting.
+_GREETING_TEXT = "ریسکیو ہیلپ لائن، میں آپ کی کس طرح مدد کر سکتی ہوں؟"
+_GREETING_FRAMES: list[rtc.AudioFrame] = []
+_greeting_lock = asyncio.Lock()
+
+
+async def _preload_greeting(tts_instance: upliftai.TTS) -> None:
+    """Synthesize the greeting once and store audio frames for reuse."""
+    global _GREETING_FRAMES
+    async with _greeting_lock:
+        if _GREETING_FRAMES:
+            return  # already cached by a prior call
+        frames: list[rtc.AudioFrame] = []
+        async for event in tts_instance.synthesize(_GREETING_TEXT):
+            frames.append(event.frame)
+        _GREETING_FRAMES = frames
+        logger.info("Greeting pre-synthesized: %d frames cached", len(frames))
+
 
 class Assistant(Agent):
-    def __init__(self) -> None:
+    """
+    Rescue helpline operator (Urdu-speaking, female).
+
+    Per-turn transcript accumulation triggers fire-and-forget analysis via
+    the FastAPI analysis pipeline (ONNX + Gemini in parallel).
+    """
+
+    def __init__(self, call_id: str) -> None:
+        self._call_id = call_id
+        self._transcript_parts: list[str] = []
+        self._last_analysis_at: float = 0.0
+        self._first_user_turn_analyzed: bool = False
+
         super().__init__(instructions="""
 # ریسکیو ہیلپ لائن آپریٹر
 
@@ -48,11 +97,71 @@ class Assistant(Agent):
 - گھبراہٹ میں ہو تو تسلی دیں: "فکر نہ کریں، مدد آ رہی ہے"
         """)
 
+    # ── Transcript hook ────────────────────────────────────────────────────────
+
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        """Accumulate caller transcript and trigger analysis off the voice path."""
+        content = getattr(new_message, "content", "") or ""
+        if isinstance(content, list):
+            text = " ".join(str(c) for c in content if c).strip()
+        else:
+            text = str(content).strip()
+
+        if not text:
+            return
+
+        self._transcript_parts.append(text)
+
+        if not self._first_user_turn_analyzed:
+            # Fire immediately on the caller's first real turn regardless of word
+            # count — gives the dashboard an early spam/urgency signal before the
+            # 20-word threshold is reached. The AI's preemptive greeting is spoken
+            # by the agent, not the caller, so it never reaches this hook.
+            self._first_user_turn_analyzed = True
+            self._last_analysis_at = time.monotonic()  # start cooldown from here
+            asyncio.create_task(self._post_analysis())
+        else:
+            asyncio.create_task(self._maybe_post_analysis())
+
+    async def _post_analysis(self) -> None:
+        """POST current transcript unconditionally (used for first-turn early signal)."""
+        full_transcript = " ".join(self._transcript_parts)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{_BACKEND_URL}/api/analysis/{self._call_id}",
+                    json={"transcript": full_transcript},
+                )
+        except Exception as exc:
+            logger.warning("Failed to post early analysis for call %s: %s", self._call_id, exc)
+
+    async def _maybe_post_analysis(self) -> None:
+        """POST accumulated transcript once ≥20 words and cooldown has elapsed."""
+        full_transcript = " ".join(self._transcript_parts)
+        word_count = len(full_transcript.split())
+        now = time.monotonic()
+
+        if word_count < _MIN_WORDS:
+            return
+        if (now - self._last_analysis_at) < _COOLDOWN_SEC:
+            return
+
+        self._last_analysis_at = now
+
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{_BACKEND_URL}/api/analysis/{self._call_id}",
+                    json={"transcript": full_transcript},
+                )
+        except Exception as exc:
+            logger.warning("Failed to post analysis for call %s: %s", self._call_id, exc)
+
+
+# ── Entrypoint ─────────────────────────────────────────────────────────────────
 
 async def entrypoint(ctx: agents.JobContext):
-    # Parse caller identity from dispatch metadata so we target the right participant.
-    # In production this will be the Twilio SIP participant's identity.
-    meta = {}
+    meta: dict = {}
     if ctx.job.metadata:
         try:
             meta = json.loads(ctx.job.metadata)
@@ -60,6 +169,7 @@ async def entrypoint(ctx: agents.JobContext):
             pass
 
     caller_identity: str | None = meta.get("caller_identity")
+    call_id: str = meta.get("call_id", "")
 
     await ctx.connect()
 
@@ -68,31 +178,68 @@ async def entrypoint(ctx: agents.JobContext):
         output_format="MP3_22050_32",
     )
 
+    # Pre-synthesize greeting on first call; cached frames reused on all subsequent
+    # calls handled by this worker — eliminates TTS latency for the opening phrase.
+    await _preload_greeting(tts)
+
     session = AgentSession(
         stt=inference.STT(model="deepgram/nova-3-general:hi"),
         llm=inference.LLM(model="google/gemini-3-flash"),
         tts=tts,
         vad=silero.VAD.load(),
+
+        # ── Latency optimisations (v1.4.1 flat API) ───────────────────────────
+
+        # Context-aware turn detection: Qwen2.5-0.5B model reads the transcript
+        # and predicts whether the caller has finished their thought, rather than
+        # waiting for silence alone. Hindi weights (99.4% TP) work for Urdu.
+        turn_detection=MultilingualModel(),
+
+        # Start LLM generation before VAD fires end-of-speech.
+        # Requires turn_detection model to be effective; default is False in v1.4.1.
+        preemptive_generation=True,
+
+        # Endpointing: how long to wait after speech ends before committing turn.
+        # Tightened from defaults (0.5s / 3.0s) for emergency call context.
+        min_endpointing_delay=0.3,   # respond as soon as model is confident
+        max_endpointing_delay=1.5,   # never wait longer than 1.5s (emergency)
+
+        # Interruption filtering: require at least 2 words and 400 ms of speech
+        # to count as a real interruption — ignores brief background noise.
+        min_interruption_duration=0.4,
+        min_interruption_words=2,
+
+        # Resume agent speech if an interruption turns out to be false
+        # (e.g. noise spike with no actual transcription).
+        resume_false_interruption=True,
+        false_interruption_timeout=1.5,
     )
 
-    # room_options.participant_identity tells the session which participant to
-    # listen to — it waits internally for that participant to join the room.
-    # In production this will be the Twilio SIP participant's identity.
     await session.start(
         room=ctx.room,
-        agent=Assistant(),
+        agent=Assistant(call_id=call_id),
         room_options=RoomOptions(participant_identity=caller_identity),
     )
 
-    await session.generate_reply(
-        instructions="ہیلپ لائن آپریٹر کے طور پر کالر کو اردو میں خوش آمدید کہیں۔"
+    # Play the pre-synthesized greeting from cached frames.
+    # No TTS network call needed — audio streams directly from memory.
+    async def _cached_greeting() -> AsyncGenerator[rtc.AudioFrame, None]:
+        for frame in _GREETING_FRAMES:
+            yield frame
+
+    await session.say(
+        _GREETING_TEXT,
+        audio=_cached_greeting(),
+        allow_interruptions=False,
     )
 
 
 if __name__ == "__main__":
+    agent_port = int(os.getenv("AGENT_PORT", "8082"))
     agents.cli.run_app(agents.WorkerOptions(
         entrypoint_fnc=entrypoint,
         agent_name=AGENT_NAME,
         worker_type=WorkerType.ROOM,
         initialize_process_timeout=60,
+        port=agent_port,
     ))
