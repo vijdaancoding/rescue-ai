@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.database import engine, Base
-from app.api import auth, calls, voice, twilio_voice
+from app.api import auth, calls, voice, twilio_voice, location_endpoint
 from app.api import analysis as analysis_router
 from app.api import dashboard_ws
 from app.api import dispatches as dispatches_router
@@ -32,7 +32,7 @@ app = FastAPI(title="Rescue AI Backend", version="1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,6 +43,7 @@ app.include_router(auth.router)
 app.include_router(calls.router)
 app.include_router(voice.router)
 app.include_router(twilio_voice.router)
+app.include_router(location_endpoint.router)
 app.include_router(analysis_router.router)   # POST /api/analysis/{call_id}
 app.include_router(dashboard_ws.router)      # WS  /ws/dashboard
 app.include_router(dispatches_router.router) # POST/GET/PATCH /api/dispatches

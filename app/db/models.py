@@ -36,6 +36,15 @@ class CallSession(Base):
     caller_country = Column(String, nullable=True)
     caller_zip = Column(String, nullable=True)
 
+class Geolocation(Base):
+    __tablename__ = "geolocation"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    call_id = Column(UUID(as_uuid=True), ForeignKey("call_sessions.id"))
+    latitude = Column(Float)
+    longitude = Column(Float)
+    is_simulated = Column(Boolean, default=False)
 
 class AiMetadata(Base):
     """
