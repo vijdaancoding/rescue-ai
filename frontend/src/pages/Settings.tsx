@@ -1,58 +1,90 @@
 import { useState } from 'react'
 import Layout from '../components/Layout'
+import Toast from '../components/Toast'
+import { useToast } from '../hooks/useToast'
 import { User, Bell, Shield, Globe, Moon, Volume2, Save } from 'lucide-react'
 
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:focus-visible:ring-cyan-500 ${
+        checked ? 'bg-teal-500 dark:bg-cyan-500' : 'bg-slate-200 dark:bg-zinc-700'
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${
+          checked ? 'translate-x-4' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  )
+}
+
+function SectionHeader({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
+  return (
+    <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-slate-200 dark:border-zinc-800">
+      <div className="w-8 h-8 bg-slate-100 dark:bg-zinc-800 rounded-lg flex items-center justify-center">
+        <Icon className="w-4 h-4 text-slate-500 dark:text-zinc-400" />
+      </div>
+      <h3 className="text-sm font-semibold text-slate-800 dark:text-zinc-200">{title}</h3>
+    </div>
+  )
+}
+
+function SettingRow({ label, description, children }: { label: string; description: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-3.5 border-b border-slate-100 dark:border-zinc-800/60 last:border-b-0">
+      <div>
+        <p className="text-sm font-medium text-slate-800 dark:text-zinc-200">{label}</p>
+        <p className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">{description}</p>
+      </div>
+      {children}
+    </div>
+  )
+}
+
 export default function Settings() {
+  const { toasts, showToast, removeToast } = useToast()
+
   const [settings, setSettings] = useState({
-    // Profile
     operatorName: 'Operator 1122',
     operatorId: 'OP-1122',
     email: 'operator1122@rescue.ai',
-    
-    // Notifications
     soundAlerts: true,
     emailNotifications: true,
     emergencyAlerts: true,
-    
-    // Display
-    darkMode: false,
+    darkMode: true,
     language: 'english',
-    
-    // Audio
     volume: 75,
     microphone: true,
-    
-    // Security
     twoFactorAuth: true,
     sessionTimeout: 30,
   })
 
   const handleSave = () => {
-    // Save settings logic here
-    alert('Settings saved successfully!')
+    showToast('Settings saved successfully', 'success')
   }
 
   return (
     <Layout title="Settings">
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="card">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Settings & Preferences</h2>
-          <p className="text-gray-600">Customize your Rescue AI experience</p>
+      {toasts.map(t => (
+        <Toast key={t.id} message={t.message} type={t.type} onClose={() => removeToast(t.id)} />
+      ))}
+
+      <div className="max-w-2xl space-y-5">
+        <div>
+          <h2 className="text-base font-semibold text-slate-800 dark:text-zinc-200">Settings & Preferences</h2>
+          <p className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">Customize your Rescue AI experience</p>
         </div>
 
-        {/* Profile Settings */}
+        {/* Profile */}
         <div className="card">
-          <div className="flex items-center gap-3 mb-6">
-            <User className="w-6 h-6 text-gray-700" />
-            <h3 className="text-xl font-bold text-gray-900">Profile Information</h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <SectionHeader icon={User} title="Profile Information" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Operator Name
-              </label>
+              <label className="block text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Operator Name</label>
               <input
                 type="text"
                 value={settings.operatorName}
@@ -61,20 +93,16 @@ export default function Settings() {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Operator ID
-              </label>
+              <label className="block text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Operator ID</label>
               <input
                 type="text"
                 value={settings.operatorId}
                 disabled
-                className="input-field bg-gray-100 cursor-not-allowed"
+                className="input-field opacity-50 cursor-not-allowed"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Email Address
-              </label>
+              <label className="block text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Email Address</label>
               <input
                 type="email"
                 value={settings.email}
@@ -85,196 +113,92 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Notification Settings */}
+        {/* Notifications */}
         <div className="card">
-          <div className="flex items-center gap-3 mb-6">
-            <Bell className="w-6 h-6 text-gray-700" />
-            <h3 className="text-xl font-bold text-gray-900">Notifications</h3>
-          </div>
+          <SectionHeader icon={Bell} title="Notifications" />
+          <SettingRow label="Sound Alerts" description="Play sound for incoming calls">
+            <Toggle checked={settings.soundAlerts} onChange={v => setSettings({ ...settings, soundAlerts: v })} />
+          </SettingRow>
+          <SettingRow label="Email Notifications" description="Receive updates via email">
+            <Toggle checked={settings.emailNotifications} onChange={v => setSettings({ ...settings, emailNotifications: v })} />
+          </SettingRow>
+          <SettingRow label="Emergency Alerts" description="High priority emergency notifications">
+            <Toggle checked={settings.emergencyAlerts} onChange={v => setSettings({ ...settings, emergencyAlerts: v })} />
+          </SettingRow>
+        </div>
 
-          <div className="space-y-4">
-            <div className="flex items-center justify-between py-3 border-b border-gray-200">
-              <div>
-                <p className="font-medium text-gray-900">Sound Alerts</p>
-                <p className="text-sm text-gray-600">Play sound for incoming calls</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.soundAlerts}
-                  onChange={(e) => setSettings({ ...settings, soundAlerts: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between py-3 border-b border-gray-200">
-              <div>
-                <p className="font-medium text-gray-900">Email Notifications</p>
-                <p className="text-sm text-gray-600">Receive updates via email</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.emailNotifications}
-                  onChange={(e) => setSettings({ ...settings, emailNotifications: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between py-3">
-              <div>
-                <p className="font-medium text-gray-900">Emergency Alerts</p>
-                <p className="text-sm text-gray-600">High priority emergency notifications</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.emergencyAlerts}
-                  onChange={(e) => setSettings({ ...settings, emergencyAlerts: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-              </label>
-            </div>
+        {/* Display */}
+        <div className="card">
+          <SectionHeader icon={Moon} title="Display & Language" />
+          <SettingRow label="Dark Mode" description="Switch to dark theme">
+            <Toggle checked={settings.darkMode} onChange={v => setSettings({ ...settings, darkMode: v })} />
+          </SettingRow>
+          <div className="pt-4">
+            <label className="block text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Globe className="w-3.5 h-3.5" /> Interface Language
+            </label>
+            <select
+              value={settings.language}
+              onChange={(e) => setSettings({ ...settings, language: e.target.value })}
+              className="input-field"
+            >
+              <option value="english">English</option>
+              <option value="urdu">اردو (Urdu)</option>
+              <option value="punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
+            </select>
           </div>
         </div>
 
-        {/* Display Settings */}
+        {/* Audio */}
         <div className="card">
-          <div className="flex items-center gap-3 mb-6">
-            <Moon className="w-6 h-6 text-gray-700" />
-            <h3 className="text-xl font-bold text-gray-900">Display & Language</h3>
+          <SectionHeader icon={Volume2} title="Audio Settings" />
+          <div className="mb-5">
+            <label className="block text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-3">
+              System Volume: <span className="text-teal-600 dark:text-cyan-400 tabular">{settings.volume}%</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={settings.volume}
+              onChange={(e) => setSettings({ ...settings, volume: parseInt(e.target.value) })}
+              className="w-full h-1.5 bg-slate-200 dark:bg-zinc-700 rounded-full appearance-none cursor-pointer accent-teal-500 dark:accent-cyan-500"
+            />
           </div>
+          <SettingRow label="Microphone Access" description="Allow microphone for voice commands">
+            <Toggle checked={settings.microphone} onChange={v => setSettings({ ...settings, microphone: v })} />
+          </SettingRow>
+        </div>
 
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-gray-900">Dark Mode</p>
-                <p className="text-sm text-gray-600">Switch to dark theme</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.darkMode}
-                  onChange={(e) => setSettings({ ...settings, darkMode: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-              </label>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Globe className="w-5 h-5 text-gray-600" />
-              <div className="flex-1">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Interface Language
-                </label>
-                <select
-                  value={settings.language}
-                  onChange={(e) => setSettings({ ...settings, language: e.target.value })}
-                  className="input-field"
-                >
-                  <option value="english">English</option>
-                  <option value="urdu">اردو (Urdu)</option>
-                  <option value="punjabi">ਪੰਜਾਬੀ (Punjabi)</option>
-                </select>
-              </div>
-            </div>
+        {/* Security */}
+        <div className="card">
+          <SectionHeader icon={Shield} title="Security" />
+          <SettingRow label="Two-Factor Authentication" description="Add an extra layer of security">
+            <Toggle checked={settings.twoFactorAuth} onChange={v => setSettings({ ...settings, twoFactorAuth: v })} />
+          </SettingRow>
+          <div className="pt-4">
+            <label className="block text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Session Timeout (minutes)</label>
+            <input
+              type="number"
+              value={settings.sessionTimeout}
+              onChange={(e) => setSettings({ ...settings, sessionTimeout: parseInt(e.target.value) })}
+              className="input-field w-32"
+              min="5"
+              max="120"
+            />
           </div>
         </div>
 
-        {/* Audio Settings */}
-        <div className="card">
-          <div className="flex items-center gap-3 mb-6">
-            <Volume2 className="w-6 h-6 text-gray-700" />
-            <h3 className="text-xl font-bold text-gray-900">Audio Settings</h3>
-          </div>
-
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                System Volume: {settings.volume}%
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={settings.volume}
-                onChange={(e) => setSettings({ ...settings, volume: parseInt(e.target.value) })}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black"
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-gray-900">Microphone Access</p>
-                <p className="text-sm text-gray-600">Allow microphone for voice commands</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.microphone}
-                  onChange={(e) => setSettings({ ...settings, microphone: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {/* Security Settings */}
-        <div className="card">
-          <div className="flex items-center gap-3 mb-6">
-            <Shield className="w-6 h-6 text-gray-700" />
-            <h3 className="text-xl font-bold text-gray-900">Security</h3>
-          </div>
-
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-gray-900">Two-Factor Authentication</p>
-                <p className="text-sm text-gray-600">Add an extra layer of security</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.twoFactorAuth}
-                  onChange={(e) => setSettings({ ...settings, twoFactorAuth: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-              </label>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Session Timeout (minutes)
-              </label>
-              <input
-                type="number"
-                value={settings.sessionTimeout}
-                onChange={(e) => setSettings({ ...settings, sessionTimeout: parseInt(e.target.value) })}
-                className="input-field"
-                min="5"
-                max="120"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Save Button */}
-        <div className="card">
+        {/* Save */}
+        <div className="flex justify-start pb-2">
           <button
             onClick={handleSave}
-            className="btn btn-primary w-full md:w-auto flex items-center justify-center gap-2"
+            className="flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 active:scale-95
+              bg-slate-900 text-white hover:bg-slate-700
+              dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
           >
             <Save className="w-4 h-4" />
-            Save All Settings
+            Save Settings
           </button>
         </div>
       </div>
