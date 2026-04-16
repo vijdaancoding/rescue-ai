@@ -1,49 +1,63 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Room, RoomEvent, type TranscriptionSegment } from 'livekit-client'
 import Layout from '../components/Layout'
-import { AlertTriangle, Bell, Phone, Volume2, Activity, Mic, PhoneOff, FlaskConical } from 'lucide-react'
+import { AlertTriangle, Phone, Activity, Mic, PhoneOff, ShieldAlert, Zap, Siren, Bell } from 'lucide-react'
+import type { AnalysisData } from '../types'
 
-const API_WS_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000')
-  .replace(/^http/, 'ws')
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_WS_URL = API_URL.replace(/^http/, 'ws')
 
 type ConnectionStatus = 'connecting' | 'connected' | 'error' | 'ended'
 
+const URGENCY_RING: Record<string, string> = {
+  critical: 'bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/40',
+  high:     'bg-orange-50 border-orange-200 dark:bg-orange-500/10 dark:border-orange-500/40',
+  medium:   'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/40',
+  low:      'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/40',
+}
+
+const URGENCY_COLOR: Record<string, string> = {
+  critical: 'text-red-600 dark:text-red-400',
+  high:     'text-orange-600 dark:text-orange-400',
+  medium:   'text-amber-600 dark:text-amber-400',
+  low:      'text-emerald-600 dark:text-emerald-400',
+}
+
+const DISPATCH_STYLE: Record<string, { bg: string; text: string; border: string }> = {
+  police:      { bg: 'bg-blue-50 dark:bg-blue-500/10',     text: 'text-blue-700 dark:text-blue-400',   border: 'border-blue-200 dark:border-blue-500/30' },
+  ambulance:   { bg: 'bg-red-50 dark:bg-red-500/10',       text: 'text-red-700 dark:text-red-400',     border: 'border-red-200 dark:border-red-500/30' },
+  firefighters:{ bg: 'bg-orange-50 dark:bg-orange-500/10', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-500/30' },
+}
+
+const DISPATCH_LABEL: Record<string, string> = {
+  police: 'Police', ambulance: 'Ambulance', firefighters: 'Firefighters',
+}
+
 export default function LiveCall() {
+  const navigate = useNavigate()
   const [transcriptLines, setTranscriptLines] = useState<string[]>([])
-  const [soundWave, setSoundWave] = useState<number[]>([])
-  const [isRecording, setIsRecording] = useState(true)
-  const [callerTestUrl, setCallerTestUrl] = useState<string | null>(null)
   const [callDuration, setCallDuration] = useState(0)
-  const [threatLevel] = useState(34)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
+  const [callId, setCallId] = useState<string | null>(null)
+  const [analysis, setAnalysis] = useState<AnalysisData | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
+  const dashboardWsRef = useRef<WebSocket | null>(null)
   const roomRef = useRef<Room | null>(null)
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null)
 
-  // Simulate sound wave animation
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSoundWave(Array.from({ length: 60 }, () => Math.random() * 100))
-    }, 100)
-    return () => clearInterval(interval)
-  }, [])
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [transcriptLines])
 
-  // Call duration timer
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCallDuration(prev => prev + 1)
-    }, 1000)
+    const timer = setInterval(() => setCallDuration(prev => prev + 1), 1000)
     return () => clearInterval(timer)
   }, [])
 
-  // WebSocket + LiveKit setup
   useEffect(() => {
-    // `isCleanup` is scoped to this effect closure. When React StrictMode
-    // runs cleanup and re-runs the effect, the first closure's isCleanup
-    // becomes true so its onclose/onmessage won't update state. The second
-    // closure starts fresh with isCleanup=false and opens a new WebSocket.
     let isCleanup = false
-
     const ws = new WebSocket(`${API_WS_URL}/ws/call`)
     wsRef.current = ws
 
@@ -51,35 +65,21 @@ export default function LiveCall() {
 
     ws.onmessage = async (event) => {
       if (isCleanup) return
-
       let payload: { token: string; caller_token: string; room_name: string; livekit_url: string; call_id: string }
-      try {
-        payload = JSON.parse(event.data)
-      } catch {
-        return
-      }
+      try { payload = JSON.parse(event.data) } catch { return }
 
-      const { token, caller_token, room_name, livekit_url } = payload
-
-      // Build the test caller URL so the dispatcher can open a second tab
-      const params = new URLSearchParams({ token: caller_token, livekit_url, room_name })
-      setCallerTestUrl(`/test-caller?${params.toString()}`)
+      const { token, livekit_url, call_id } = payload
+      setCallId(call_id)
 
       const room = new Room()
       roomRef.current = room
 
       room.on(RoomEvent.TranscriptionReceived, (segments: TranscriptionSegment[]) => {
-        const finalTexts = segments
-          .filter((s) => s.final)
-          .map((s) => s.text)
-          .filter(Boolean)
-        if (finalTexts.length > 0) {
-          setTranscriptLines((prev) => [...prev, ...finalTexts])
-        }
+        const finalTexts = segments.filter(s => s.final).map(s => s.text).filter(Boolean)
+        if (finalTexts.length > 0) setTranscriptLines(prev => [...prev, ...finalTexts])
       })
 
       try {
-        // Dispatcher joins as subscribe-only — no mic publishing
         await room.connect(livekit_url, token)
         setConnectionStatus('connected')
       } catch {
@@ -88,12 +88,7 @@ export default function LiveCall() {
     }
 
     ws.onerror = () => setConnectionStatus('error')
-
-    ws.onclose = () => {
-      // Ignore close events triggered by our own cleanup (StrictMode or unmount)
-      if (isCleanup) return
-      setConnectionStatus('ended')
-    }
+    ws.onclose = () => { if (!isCleanup) setConnectionStatus('ended') }
 
     return () => {
       isCleanup = true
@@ -102,6 +97,25 @@ export default function LiveCall() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!callId) return
+    let isCleanup = false
+    const dws = new WebSocket(`${API_WS_URL}/ws/dashboard`)
+    dashboardWsRef.current = dws
+
+    dws.onmessage = (event) => {
+      if (isCleanup) return
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === 'analysis_update' && data.call_id === callId) {
+          setAnalysis(data as AnalysisData)
+        }
+      } catch { /* ignore */ }
+    }
+
+    return () => { isCleanup = true; dws.close() }
+  }, [callId])
+
   const handleEndCall = useCallback(() => {
     setConnectionStatus('ended')
     wsRef.current?.send('end_call')
@@ -109,6 +123,22 @@ export default function LiveCall() {
     roomRef.current?.disconnect()
   }, [])
 
+  const handleDispatch = useCallback(() => {
+    if (!callId) return
+    navigate(`/dispatch/${callId}`, { state: { analysis } })
+  }, [callId, analysis, navigate])
+
+  const handleFalseAlarm = useCallback(async () => {
+    if (callId) {
+      await fetch(`${API_URL}/calls/${callId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'FalseAlarm' }),
+      }).catch(() => {})
+    }
+    handleEndCall()
+    navigate('/dashboard')
+  }, [callId, handleEndCall, navigate])
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -116,306 +146,259 @@ export default function LiveCall() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  const transcriptText = transcriptLines.join('\n')
+  const spamPct = analysis ? Math.round(analysis.spam_score * 100) : null
+  const urgencyPct = analysis ? Math.round(analysis.urgency_score * 100) : 34
+  const urgencyLabel = analysis?.urgency_label ?? 'medium'
+  const isSpam = analysis?.spam_label === 'spam'
 
-  const statusColor =
-    connectionStatus === 'connected'
-      ? 'text-green-300'
-      : connectionStatus === 'error' || connectionStatus === 'ended'
-      ? 'text-red-300'
-      : 'text-yellow-300'
+  const statusDot =
+    connectionStatus === 'connected' ? 'bg-emerald-500' :
+    connectionStatus === 'error' || connectionStatus === 'ended' ? 'bg-red-500' :
+    'bg-amber-400'
 
   const statusLabel =
-    connectionStatus === 'connecting'
-      ? 'Connecting...'
-      : connectionStatus === 'connected'
-      ? 'Live'
-      : connectionStatus === 'ended'
-      ? 'Call Ended'
-      : 'Connection Error'
+    connectionStatus === 'connecting' ? 'Connecting...' :
+    connectionStatus === 'connected' ? 'Live' :
+    connectionStatus === 'ended' ? 'Call Ended' : 'Connection Error'
 
   return (
-    <Layout title="Active Call - Rescue AI">
-      <div className="space-y-6">
-        {/* Call Status Header */}
-        <div className="card bg-gradient-to-r from-red-500 to-red-600 text-white">
+    <Layout title="Active Call">
+      <div className="space-y-4">
+
+        {/* Call header bar */}
+        <div className="bg-red-50 border border-red-200 dark:bg-red-500/5 dark:border-red-500/25 rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center animate-pulse">
-                <Phone className="w-8 h-8 text-white" />
+              <div className="w-11 h-11 bg-red-100 dark:bg-red-500/15 rounded-xl flex items-center justify-center">
+                <Phone className="w-5 h-5 text-red-600 dark:text-red-400 animate-pulse" />
               </div>
               <div>
-                <h3 className="text-2xl font-bold">Emergency Call in Progress</h3>
-                <p className="text-red-100">Caller ID: +92-XXX-XXX-XXXX</p>
+                <p className="text-base font-semibold text-slate-900 dark:text-zinc-100">Emergency Call in Progress</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <div className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
+                  <span className="text-xs text-slate-500 dark:text-zinc-500">{statusLabel}</span>
+                  <span className="text-slate-300 dark:text-zinc-700">·</span>
+                  <span className="text-xs text-slate-500 dark:text-zinc-500">+92-XXX-XXX-XXXX</span>
+                </div>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-3xl font-bold mb-1">{formatTime(callDuration)}</div>
-              <div className="flex items-center gap-2 justify-end">
-                <div className={`w-2 h-2 rounded-full animate-pulse ${connectionStatus === 'connected' ? 'bg-green-300' : 'bg-white'}`} />
-                <span className={`text-sm ${statusColor}`}>{statusLabel}</span>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p className="text-2xl font-bold tabular text-slate-900 dark:text-zinc-100">{formatTime(callDuration)}</p>
+                <p className="text-xs text-slate-400 dark:text-zinc-600">Duration</p>
               </div>
-            </div>
-          </div>
-          <div className="mt-4 flex gap-3">
-            <button
-              onClick={() => setIsRecording(!isRecording)}
-              className="btn bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-md"
-            >
-              <Mic className="w-4 h-4 mr-2" />
-              {isRecording ? 'Recording' : 'Paused'}
-            </button>
-            {callerTestUrl && (
-              <a
-                href={callerTestUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="btn bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-md inline-flex items-center"
+              <button
+                onClick={handleEndCall}
+                disabled={connectionStatus === 'ended'}
+                className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-red-300 text-slate-600 hover:text-red-600
+                  dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:border-zinc-700 dark:hover:border-red-500/50 dark:text-zinc-300 dark:hover:text-red-400
+                  rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
               >
-                <FlaskConical className="w-4 h-4 mr-2" />
-                Open Test Caller
-              </a>
-            )}
-            <button
-              onClick={handleEndCall}
-              disabled={connectionStatus === 'ended'}
-              className="btn bg-white hover:bg-gray-100 text-red-600 border-0 ml-auto disabled:opacity-50"
-            >
-              <PhoneOff className="w-4 h-4 mr-2" />
-              End Call
-            </button>
+                <PhoneOff className="w-4 h-4" />
+                End Call
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Live Urdu Transcription */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-3">
-              <Mic className="w-6 h-6 text-teal-600" />
-              Live Urdu Transcription
-            </h2>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-full border border-red-200">
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-sm font-medium text-red-700">Recording</span>
+        {/* Main grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Left: Transcript */}
+          <div className="card flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Mic className="w-4 h-4 text-teal-600 dark:text-cyan-400" />
+                <h2 className="text-xs font-semibold text-slate-500 dark:text-zinc-500 uppercase tracking-wider">Live Transcript</h2>
               </div>
-              <span className="badge badge-info">Urdu Detected</span>
+              <div className="flex items-center gap-2">
+                <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold ${
+                  spamPct === null
+                    ? 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-500'
+                    : isSpam
+                    ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-500/10 dark:border-red-500/25 dark:text-red-400'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-500/25 dark:text-emerald-400'
+                }`}>
+                  <ShieldAlert className="w-3 h-3" />
+                  {spamPct === null ? 'Analysing...' : `Spam ${spamPct}%`}
+                </span>
+                <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold ${
+                  analysis
+                    ? (URGENCY_RING[urgencyLabel] ?? 'bg-slate-100 border-slate-200 dark:bg-zinc-800 dark:border-zinc-700')
+                    : 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-500'
+                }`}>
+                  <Zap className={`w-3 h-3 ${analysis ? (URGENCY_COLOR[urgencyLabel] ?? '') : 'text-slate-400 dark:text-zinc-500'}`} />
+                  <span className={analysis ? (URGENCY_COLOR[urgencyLabel] ?? '') : 'text-slate-400 dark:text-zinc-500'}>
+                    {analysis ? urgencyLabel.toUpperCase() : 'Urgency...'}
+                  </span>
+                </span>
+              </div>
             </div>
-          </div>
 
-          <div className="flex gap-3 mb-6">
-            <button className="btn btn-secondary text-sm">
-              Prank Probability: 7%
-            </button>
-            <button className="btn btn-primary text-sm">
-              TTS (URDU-A)
-            </button>
-            <button className="btn btn-secondary text-sm">
-              Auto-Translate
-            </button>
-          </div>
-
-          <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-6 min-h-[150px] border-2 border-gray-200">
-            <textarea
-              value={connectionStatus === 'connecting'
-                ? 'Connecting to call...'
-                : connectionStatus === 'error'
-                ? 'Connection failed. Please try again.'
-                : transcriptText || 'Waiting for speech...'}
-              readOnly
-              placeholder="Urdu transcription will appear here as the caller speaks..."
-              className="w-full h-32 bg-transparent border-none focus:outline-none resize-none text-gray-900 text-lg"
-            />
-          </div>
-
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
-            <span>Confidence: 94%</span>
-            <span>Words: {transcriptText.split(/\s+/).filter(Boolean).length}</span>
-            <span>Language: Urdu</span>
-          </div>
-        </div>
-
-        {/* Sound Wave Visualizer */}
-        <div className="card bg-gradient-to-br from-gray-900 to-gray-800 text-white">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <Volume2 className="w-6 h-6 text-teal-400" />
-              <h3 className="text-xl font-bold">Sound Wave Visualizer</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-green-400" />
-              <span className="text-sm text-gray-300">Active</span>
-            </div>
-          </div>
-          <p className="text-sm text-gray-400 mb-6">Real-time audio waveform analysis</p>
-
-          {/* Waveform Display */}
-          <div className="bg-black/30 backdrop-blur-md rounded-xl p-8 h-56 flex items-center justify-center border border-white/10">
-            <div className="flex items-end justify-center gap-1 h-40 w-full">
-              {soundWave.map((height, index) => (
-                <div
-                  key={index}
-                  className="flex-1 bg-gradient-to-t from-teal-500 via-teal-400 to-teal-300 rounded-t transition-all duration-100 shadow-lg"
-                  style={{
-                    height: `${height}%`,
-                    boxShadow: height > 70 ? '0 0 10px rgba(20, 184, 166, 0.5)' : 'none'
-                  }}
-                />
+            <div className="bg-slate-950 rounded-xl p-4 flex-1 min-h-[180px] max-h-[320px] overflow-y-auto font-mono text-sm leading-relaxed border border-slate-800">
+              {connectionStatus === 'connecting' && (
+                <p className="text-slate-600 text-xs">Connecting to call...</p>
+              )}
+              {connectionStatus === 'error' && (
+                <p className="text-red-400 text-xs">Connection failed. Please try again.</p>
+              )}
+              {(connectionStatus === 'connected' || connectionStatus === 'ended') && transcriptLines.length === 0 && (
+                <p className="text-slate-700 text-xs">Waiting for speech<span className="animate-pulse">...</span></p>
+              )}
+              {transcriptLines.map((line, i) => (
+                <p key={i} className="text-slate-200 mb-1 text-xs">
+                  <span className="text-cyan-500 mr-2 select-none">›</span>{line}
+                </p>
               ))}
+              <div ref={transcriptEndRef} />
             </div>
+
+            {analysis && (
+              <p className="mt-2 text-xs text-slate-400 dark:text-zinc-600 text-right">
+                Analysis #{analysis.analysis_count} · {analysis.transcript_word_count} words
+              </p>
+            )}
           </div>
 
-          {/* Audio Metrics */}
-          <div className="mt-6 grid grid-cols-4 gap-4">
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center">
-              <p className="text-sm text-gray-400 mb-1">Volume</p>
-              <p className="text-2xl font-bold text-white">78 dB</p>
+          {/* Right: AI Analysis */}
+          <div className="card flex flex-col">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              <h2 className="text-xs font-semibold text-slate-500 dark:text-zinc-500 uppercase tracking-wider">AI Situation Analysis</h2>
             </div>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center">
-              <p className="text-sm text-gray-400 mb-1">Pitch</p>
-              <p className="text-2xl font-bold text-white">245 Hz</p>
-            </div>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center">
-              <p className="text-sm text-gray-400 mb-1">Emotion</p>
-              <p className="text-2xl font-bold text-yellow-400">Urgent</p>
-            </div>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center">
-              <p className="text-sm text-gray-400 mb-1">Quality</p>
-              <p className="text-2xl font-bold text-green-400">HD</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Situation Overview */}
-          <div className="card">
-            <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-6 h-6 text-orange-600" />
-              AI Situation Analysis
-            </h3>
-            <p className="text-sm text-gray-600 mb-6">
-              Real-time threat assessment and recommendations
+            <p className="text-xs text-slate-400 dark:text-zinc-600 mb-4">
+              {analysis
+                ? `Updated ${analysis.analysis_count} time${analysis.analysis_count !== 1 ? 's' : ''} this call`
+                : 'Waiting for enough transcript (~20 words)...'}
             </p>
 
-            <div className="bg-gradient-to-br from-orange-50 to-red-50 border-2 border-orange-300 rounded-2xl p-6 mb-6">
-              <div className="text-center mb-6">
-                <div className="relative inline-block">
-                  <svg className="w-32 h-32" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="45" fill="none" stroke="#e5e7eb" strokeWidth="8" />
+            {/* Urgency gauge */}
+            <div className={`border rounded-xl p-4 mb-4 transition-all duration-700 ${URGENCY_RING[urgencyLabel] ?? 'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/40'}`}>
+              <div className="flex items-center gap-5">
+                <div className="relative flex-shrink-0">
+                  <svg className="w-20 h-20" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="#e2e8f0" strokeWidth="8" className="dark:stroke-zinc-800" />
                     <circle
-                      cx="50"
-                      cy="50"
-                      r="45"
-                      fill="none"
-                      stroke="#ef4444"
+                      cx="50" cy="50" r="42" fill="none"
+                      stroke={urgencyLabel === 'critical' ? '#ef4444' : urgencyLabel === 'high' ? '#f97316' : urgencyLabel === 'medium' ? '#f59e0b' : '#10b981'}
                       strokeWidth="8"
-                      strokeDasharray={`${threatLevel * 2.827} 282.7`}
+                      strokeDasharray={`${urgencyPct * 2.639} 263.9`}
                       strokeLinecap="round"
                       transform="rotate(-90 50 50)"
                       className="transition-all duration-1000"
                     />
                   </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div>
-                      <p className="text-4xl font-bold text-red-600">{threatLevel}%</p>
-                      <p className="text-sm text-gray-600 font-semibold">CRITICAL</p>
-                    </div>
+                  <div className="absolute inset-0 flex items-center justify-center flex-col">
+                    <p className={`text-xl font-bold tabular ${URGENCY_COLOR[urgencyLabel] ?? 'text-slate-500'}`}>{urgencyPct}%</p>
+                    <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-500 uppercase">{urgencyLabel}</p>
                   </div>
                 </div>
+
+                <div className="flex-1 space-y-2 text-xs">
+                  {analysis ? (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 dark:text-zinc-500">ONNX spam</span>
+                        <span className={`font-semibold tabular ${isSpam ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                          {Math.round(analysis.onnx_spam_score * 100)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 dark:text-zinc-500">Gemini spam</span>
+                        <span className={`font-semibold tabular ${isSpam ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                          {Math.round(analysis.gemini_spam_score * 100)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center border-t border-slate-200 dark:border-zinc-800 pt-2">
+                        <span className="text-slate-400 dark:text-zinc-500">Combined</span>
+                        <span className={`font-bold tabular ${isSpam ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                          {spamPct}% — {isSpam ? 'SPAM' : 'REAL'}
+                        </span>
+                      </div>
+                      <p className="text-slate-500 dark:text-zinc-500 italic pt-1 leading-snug text-[11px]">
+                        {analysis.reasoning}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-slate-400 dark:text-zinc-600 italic text-xs">Awaiting analysis...</p>
+                  )}
+                </div>
               </div>
 
-              <div className="bg-white rounded-xl p-5 shadow-md">
-                <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-red-600" />
-                  AI Analysis Report
-                </h4>
-                <ul className="space-y-2 text-sm text-gray-700">
-                  <li className="flex items-start gap-2">
-                    <span className="text-red-600 font-bold">•</span>
-                    <span>High-priority emergency detected</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-red-600 font-bold">•</span>
-                    <span>Caller shows signs of distress (voice trembling detected)</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-red-600 font-bold">•</span>
-                    <span>Keywords: "emergency", "help", "urgent" detected</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-green-600 font-bold">•</span>
-                    <span>Location identified: Model Town, Lahore</span>
-                  </li>
-                </ul>
+              {analysis && analysis.dispatch_recommendation.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-zinc-800/60">
+                  <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Activity className="w-3 h-3" /> AI Recommends
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {analysis.dispatch_recommendation.map(type => {
+                      const s = DISPATCH_STYLE[type]
+                      return s ? (
+                        <span key={type} className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${s.bg} ${s.text} ${s.border}`}>
+                          {DISPATCH_LABEL[type]}
+                        </span>
+                      ) : null
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Status pills */}
+            <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+              <div className={`rounded-lg p-2.5 text-center font-semibold border ${
+                isSpam
+                  ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-500/10 dark:border-red-500/25 dark:text-red-400'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-500/25 dark:text-emerald-400'
+              }`}>
+                {spamPct === null ? 'Spam: Pending' : `Spam: ${spamPct}%`}
+              </div>
+              <div className={`rounded-lg p-2.5 text-center font-semibold border ${URGENCY_RING[urgencyLabel] ?? 'bg-amber-50 border-amber-200'}`}>
+                <span className={URGENCY_COLOR[urgencyLabel]}>
+                  {urgencyLabel.charAt(0).toUpperCase() + urgencyLabel.slice(1)} Urgency
+                </span>
               </div>
             </div>
 
-            <div className="flex gap-2 text-sm">
-              <div className="flex-1 bg-red-100 text-red-700 rounded-lg p-3 text-center font-semibold">
-                Confidence: 94%
-              </div>
-              <div className="flex-1 bg-orange-100 text-orange-700 rounded-lg p-3 text-center font-semibold">
-                Response Time: 3m
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="card">
-            <h3 className="text-xl font-bold text-gray-900 mb-6">Quick Actions</h3>
-
-            <div className="space-y-4">
-              <button className="w-full flex items-center gap-4 p-6 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-2xl border-0 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
-                <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="w-8 h-8 text-white" />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className="text-xl font-bold">DISPATCH UNIT</p>
-                  <p className="text-sm text-red-100">Send ambulance immediately</p>
-                </div>
-              </button>
-
-              <button className="w-full flex items-center gap-4 p-6 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 rounded-2xl border-0 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
-                <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Bell className="w-8 h-8 text-white" />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className="text-xl font-bold">MARK AS FALSE ALARM</p>
-                  <p className="text-sm text-yellow-100">Prank or non-emergency call</p>
-                </div>
-              </button>
-
-              <button className="w-full flex items-center gap-4 p-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-2xl border-0 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
-                <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Phone className="w-8 h-8 text-white" />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className="text-xl font-bold">TRANSFER CALL</p>
-                  <p className="text-sm text-blue-100">Route to specialist</p>
-                </div>
-              </button>
-            </div>
-
-            {/* Call Notes */}
-            <div className="mt-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Call Notes
-              </label>
+            {/* Call notes */}
+            <div className="mt-auto">
+              <label className="block text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Call Notes</label>
               <textarea
                 placeholder="Add notes about this call..."
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none"
-                rows={3}
+                className="w-full px-3 py-2.5 rounded-lg resize-none text-sm transition-all duration-200
+                  bg-slate-50 border border-slate-200 text-slate-900 placeholder:text-slate-400
+                  dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-200 dark:placeholder:text-zinc-600
+                  focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-cyan-500"
+                rows={2}
               />
             </div>
           </div>
         </div>
 
-        {/* Footer Info */}
-        <div className="glass rounded-xl p-6 text-center shadow-lg">
-          <p className="text-sm text-gray-700 font-medium">
-            <span className="font-bold text-teal-600">Rescue AI</span> - Always ready to assist  •
-            Emergency Hotline: 1122  •  Call Center: 123-456-7890
-          </p>
+        {/* Action bar */}
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={handleFalseAlarm}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all duration-200
+              bg-white border border-slate-200 text-slate-500 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700
+              dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-amber-500/10 dark:hover:border-amber-500/40 dark:hover:text-amber-400"
+          >
+            <Bell className="w-4 h-4" />
+            Mark as False Alarm
+          </button>
+
+          <button
+            onClick={handleDispatch}
+            disabled={!callId}
+            className="flex-1 flex items-center justify-center gap-3 py-3 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white font-semibold text-base transition-all duration-200 active:scale-[0.99] shadow-lg shadow-red-500/20"
+          >
+            <Siren className="w-5 h-5" />
+            <span>DISPATCH UNIT</span>
+            {analysis?.dispatch_recommendation?.length ? (
+              <span className="text-xs text-red-200 font-normal">
+                AI: {analysis.dispatch_recommendation.map(t => DISPATCH_LABEL[t]).join(', ')}
+              </span>
+            ) : null}
+          </button>
         </div>
       </div>
     </Layout>

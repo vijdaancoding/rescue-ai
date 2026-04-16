@@ -212,6 +212,7 @@ __marimo__/
 # Claude 
 CLAUDE.md 
 .claude/
+.mcp.json
 
 # Archives 
 frontend/node_modules

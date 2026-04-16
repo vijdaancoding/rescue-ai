@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     TWILIO_PHONE_NUMBER: str = ""
 
     OPENCAGE_API_KEY: str = ""      #geodecoding 
+    GOOGLE_API_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
