@@ -1,3 +1,6 @@
+# Local SIP trunk config (contains LiveKit auth password)
+sip-trunk.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -205,3 +208,15 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Claude 
+CLAUDE.md 
+.claude/
+.mcp.json
+
+# Archives 
+frontend/node_modules
+core/
+
+# ML models 
+models/
