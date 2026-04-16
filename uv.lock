@@ -1348,6 +1348,9 @@ elevenlabs = [
 google = [
     { name = "livekit-plugins-google" },
 ]
+groq = [
+    { name = "livekit-plugins-groq" },
+]
 images = [
     { name = "pillow" },
 ]
@@ -1455,6 +1458,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7a/10/1660614b318df41c6bf47102e9f9aad88960064ae0539d7f785d0b6ebc1d/livekit_plugins_google-1.4.1.tar.gz", hash = "sha256:c1942a84ea8bd55b19a0dce0d4faf528bd0b25638cda22d725e20e8e129de7d0", size = 38056, upload-time = "2026-02-06T21:38:00.606Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b4/45/f4e913b49f23c4f99af464c21ac6ac24708be95f3a3e935e92edf53fca6e/livekit_plugins_google-1.4.1-py3-none-any.whl", hash = "sha256:837425b2dd1fce95d7b32b0489682128e49b833eaa7dc98b732a15e6a00543e5", size = 44615, upload-time = "2026-02-06T21:37:59.632Z" },
+]
+
+[[package]]
+name = "livekit-plugins-groq"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "livekit" },
+    { name = "livekit-agents", extra = ["codecs", "openai"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/ea/0e6e05f83f3fe1cf5df81cee461858bd41f7c838d09664536a4069c00cd6/livekit_plugins_groq-1.4.1.tar.gz", hash = "sha256:2279d5c94aa779d569e1be6b9e0f41cd4d574783143a514adf41e0d09b156197", size = 6193, upload-time = "2026-02-06T21:38:03.433Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/ec/e6d46a8489c3d75b2cacb9ad1e746369167ec7a28b78caddbbf0c9d0a49b/livekit_plugins_groq-1.4.1-py3-none-any.whl", hash = "sha256:929ded7c298faa1932d47cc6e2c58218f5c5f9c1a39317ac7007df40c2768c68", size = 7331, upload-time = "2026-02-06T21:38:02.588Z" },
 ]
 
 [[package]]
@@ -2640,7 +2657,7 @@ dependencies = [
     { name = "flask" },
     { name = "google-genai" },
     { name = "httpx" },
-    { name = "livekit-agents", extra = ["cartesia", "deepgram", "elevenlabs", "google", "openai", "silero", "turn-detector"] },
+    { name = "livekit-agents", extra = ["cartesia", "deepgram", "elevenlabs", "google", "groq", "openai", "silero", "turn-detector"] },
     { name = "livekit-plugins-noise-cancellation" },
     { name = "livekit-plugins-upliftai" },
     { name = "loguru" },
@@ -2664,7 +2681,7 @@ requires-dist = [
     { name = "flask", specifier = ">=3.1.2" },
     { name = "google-genai", specifier = ">=1.62.0" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "livekit-agents", extras = ["cartesia", "deepgram", "elevenlabs", "google", "openai", "silero", "turn-detector"], specifier = "~=1.4" },
+    { name = "livekit-agents", extras = ["cartesia", "deepgram", "elevenlabs", "google", "groq", "openai", "silero", "turn-detector"], specifier = "~=1.4" },
     { name = "livekit-plugins-noise-cancellation", specifier = "~=0.2" },
     { name = "livekit-plugins-upliftai", specifier = "==1.2.8" },
     { name = "loguru", specifier = ">=0.7.3" },

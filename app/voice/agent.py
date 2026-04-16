@@ -12,7 +12,7 @@ import httpx
 from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, WorkerType, inference
 from livekit.agents.voice.room_io import RoomOptions
-from livekit.plugins import upliftai, silero
+from livekit.plugins import upliftai, silero, groq
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger(__name__)
@@ -183,7 +183,7 @@ async def entrypoint(ctx: agents.JobContext):
     await _preload_greeting(tts)
 
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3-general:hi"),
+        stt=groq.STT(model="whisper-large-v3-turbo", language="ur"),
         llm=inference.LLM(model="google/gemini-3-flash"),
         tts=tts,
         vad=silero.VAD.load(),
