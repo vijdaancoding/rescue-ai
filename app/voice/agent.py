@@ -288,6 +288,33 @@ async def entrypoint(ctx: agents.JobContext):
     )
 
 
+
+
+async def init_voice_agent(
+    room_name: str,
+    participant_name: str = "ai_agent",
+    call_id: str | None = None,
+    location_context: dict | None = None,
+) -> Assistant:
+    """
+    Initialize and return a voice agent instance.
+    
+    Used for testing and direct agent instantiation.
+    
+    Args:
+        room_name: LiveKit room name
+        participant_name: Participant name for the agent
+        call_id: Call session ID (optional)
+        location_context: Location context data (optional)
+        
+    Returns:
+        Initialized Assistant agent instance
+    """
+    return Assistant(
+        call_id=call_id or room_name,
+        location_context=location_context,
+    )
+
 if __name__ == "__main__":
     agent_port = int(os.getenv("AGENT_PORT", "8082"))
     agents.cli.run_app(agents.WorkerOptions(
