@@ -13,7 +13,6 @@ from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, WorkerType, inference, TurnHandlingOptions
 from livekit.agents.voice.room_io import RoomOptions
 from livekit.plugins import upliftai, silero, groq
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger(__name__)
 
@@ -244,23 +243,13 @@ async def entrypoint(ctx: agents.JobContext):
         tts=tts,
         vad=silero.VAD.load(),
         turn_handling=TurnHandlingOptions(
-            # Context-aware turn detection: Qwen2.5-0.5B reads the transcript and
-            # predicts end-of-thought, not silence alone. Hindi weights (99.4% TP)
-            # are the closest language to Urdu in the multilingual model.
-            turn_detection=MultilingualModel(),
             endpointing={
-                # Dynamic endpointing adapts the delay within [min_delay, max_delay]
-                # based on the caller's cadence — snappier for fast speakers, more
-                # patient for slow ones. Well-suited to high-variance emergency calls.
                 "mode": "dynamic",
                 "min_delay": 0.3,
                 "max_delay": 1.5,
             },
             interruption={
-                # Adaptive interruption handling (v1.5): audio-based ML classifier
-                # rejects coughs/sighs/backchannels as false interruptions. 86%
-                # precision at 500ms overlap; 64% faster than VAD alone.
-                "mode": "adaptive",
+                "mode": "vad",
                 "min_duration": 0.4,
                 "min_words": 2,
                 "resume_false_interruption": True,
