@@ -88,7 +88,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
     log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     created_at = Column(DateTime(timezone=True), default=get_utc_now)
-    action_type = Column(String, nullable=True, unique=True)
+    action_type = Column(String, nullable=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     description = Column(Text, nullable=True)
     call_id = Column(UUID(as_uuid=True), ForeignKey("call_sessions.id"))

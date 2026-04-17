@@ -10,6 +10,7 @@ import CallHistory from './pages/CallHistory'
 import Settings from './pages/Settings'
 import TestCaller from './pages/TestCaller'
 import Dispatch from './pages/Dispatch'
+import Health from './pages/Health'
 
 function App() {
   return (
@@ -42,6 +43,11 @@ function App() {
             <Route path="/settings" element={
               <ProtectedRoute>
                 <Settings />
+              </ProtectedRoute>
+            } />
+            <Route path="/health" element={
+              <ProtectedRoute>
+                <Health />
               </ProtectedRoute>
             } />
             <Route path="/dispatch/:callId" element={

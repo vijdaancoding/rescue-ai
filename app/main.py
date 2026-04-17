@@ -10,6 +10,8 @@ from app.api import analysis as analysis_router
 from app.api import analytics as analytics_router
 from app.api import dashboard_ws
 from app.api import dispatches as dispatches_router
+from app.api import health as health_router
+from app.api.errors import install_error_handlers
 from app.core import http_client
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -51,6 +53,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+install_error_handlers(app)
+
 # ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(calls.router)
@@ -61,6 +65,7 @@ app.include_router(analysis_router.router)    # POST /api/analysis/{call_id}
 app.include_router(dashboard_ws.router)       # WS  /ws/dashboard
 app.include_router(dispatches_router.router)  # POST/GET/PATCH /api/dispatches
 app.include_router(analytics_router.router)   # GET /api/analytics/*
+app.include_router(health_router.router)      # /health/* + WS /health/ws
 
 
 @app.get("/")

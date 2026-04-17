@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ShieldCheck, Eye, History, BarChart3, Settings, LogOut, User, Sun, Moon } from 'lucide-react'
+import { ShieldCheck, Eye, History, BarChart3, Settings, LogOut, User, Sun, Moon, Activity } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 
@@ -19,6 +19,7 @@ export default function Layout({ children, title }: LayoutProps) {
     { icon: Eye, label: 'Live View', path: '/dashboard' },
     { icon: History, label: 'Call History', path: '/call-history' },
     { icon: BarChart3, label: 'Analytics', path: '/analytics' },
+    { icon: Activity, label: 'System Health', path: '/health' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 

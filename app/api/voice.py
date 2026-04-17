@@ -1,37 +1,39 @@
 """
 WebSocket endpoint that bridges a browser caller to a LiveKit room + agent.
 
-The endpoint is async (required for WebSockets) but our SQLAlchemy session is
-sync — any DB call here is wrapped in `asyncio.to_thread` so it doesn't block
-the event loop while Supabase replies.
+The endpoint is async (required for WebSockets); SQLAlchemy is sync so every
+DB call is wrapped in `asyncio.to_thread` to keep the event loop responsive.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from livekit.api import AccessToken, CreateAgentDispatchRequest, LiveKitAPI, VideoGrants
 from loguru import logger
-from sqlalchemy.orm import Session
 from starlette.websockets import WebSocketState
 
-from app.api.deps import get_db
+from app.api.deps import get_call_repo, get_geolocation_repo
 from app.core.config import settings
-from app.db.models import CallSession, Geolocation
+from app.repositories.calls import CallRepository
+from app.repositories.geolocation import GeolocationRepository
+from app.services import voice as voice_service
 from app.utils.geocoding import reverse_geocode
 
 router = APIRouter(prefix="/ws", tags=["Voice"])
 
 AGENT_NAME = "rescue-operator"
 _TOKEN_TTL = timedelta(hours=2)
+_GEOCODE_TIMEOUT_SECONDS = 3.0
 
 
-def _mint_token(identity: str, display_name: str, room: str, *, publish: bool) -> str:
-    """Build a signed LiveKit access token. Pure CPU — fine to call from async."""
+def _mint_token(
+    identity: str, display_name: str, room: str, *, publish: bool
+) -> str:
     grants = VideoGrants(
         room_join=True,
         room=room,
@@ -49,48 +51,62 @@ def _mint_token(identity: str, display_name: str, room: str, *, publish: bool) -
     )
 
 
-def _create_call_row(db: Session, caller_hash: str, room_name: str) -> CallSession:
-    call = CallSession(caller_hash=caller_hash, status="Incoming", room_name=room_name)
-    db.add(call)
-    db.commit()
-    db.refresh(call)
-    return call
+async def _resolve_location(
+    call_id: uuid.UUID,
+    lat: Optional[float],
+    lng: Optional[float],
+    *,
+    calls: CallRepository,
+    geolocation: GeolocationRepository,
+) -> dict:
+    if lat is None or lng is None:
+        return {}
+    try:
+        geo_data = await asyncio.wait_for(
+            reverse_geocode(lat, lng), timeout=_GEOCODE_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Reverse geocode timed out for call {}", call_id)
+        geo_data = {"city": None, "state": None, "country": None, "zip": None}
+
+    await asyncio.to_thread(
+        voice_service.save_geolocation,
+        call_id=call_id,
+        lat=lat,
+        lng=lng,
+        geo_data=geo_data,
+        calls=calls,
+        geolocation=geolocation,
+    )
+    return {
+        "lat": lat,
+        "lng": lng,
+        "city": geo_data.get("city"),
+        "state": geo_data.get("state"),
+        "country": geo_data.get("country"),
+    }
 
 
-def _save_geolocation(
-    db: Session, call_id, lat: float, lng: float, geo_data: dict[str, Optional[str]]
-) -> None:
-    call = db.query(CallSession).filter(CallSession.id == call_id).first()
-    if call is None:
-        return
-    call.caller_city = geo_data["city"]
-    call.caller_state = geo_data["state"]
-    call.caller_country = geo_data["country"]
-    call.caller_zip = geo_data["zip"]
-    db.add(Geolocation(call_id=call_id, latitude=lat, longitude=lng, is_simulated=True))
-    db.commit()
-
-
-def _mark_call_active(db: Session, call_id) -> None:
-    call = db.query(CallSession).filter(CallSession.id == call_id).first()
-    if call is not None:
-        call.status = "Active"
-        db.commit()
-
-
-def _close_call(db: Session, call_id) -> None:
-    call = db.query(CallSession).filter(CallSession.id == call_id).first()
-    if call is None:
-        return
-    call.end_time = datetime.now(timezone.utc)
-    call.status = "FalseAlarm"
-    db.commit()
+async def _dispatch_agent(room_name: str, metadata: dict) -> None:
+    async with LiveKitAPI(
+        url=settings.LIVEKIT_URL,
+        api_key=settings.LIVEKIT_API_KEY,
+        api_secret=settings.LIVEKIT_API_SECRET,
+    ) as lkapi:
+        await lkapi.agent_dispatch.create_dispatch(
+            CreateAgentDispatchRequest(
+                agent_name=AGENT_NAME,
+                room=room_name,
+                metadata=json.dumps(metadata),
+            )
+        )
 
 
 @router.websocket("/call")
 async def websocket_call(
     websocket: WebSocket,
-    db: Session = Depends(get_db),
+    calls: CallRepository = Depends(get_call_repo),
+    geolocation: GeolocationRepository = Depends(get_geolocation_repo),
     lat: Optional[float] = Query(default=None),
     lng: Optional[float] = Query(default=None),
 ) -> None:
@@ -99,15 +115,13 @@ async def websocket_call(
     caller_hash = f"anon-{uuid.uuid4()}"
     room_name = f"call-{uuid.uuid4()}"
 
-    call = await asyncio.to_thread(_create_call_row, db, caller_hash, room_name)
-    call_id = call.id
-
-    # Kick off reverse geocoding in parallel with LiveKit dispatch work.
-    geocode_task = (
-        asyncio.create_task(reverse_geocode(lat, lng))
-        if lat is not None and lng is not None
-        else None
+    call = await asyncio.to_thread(
+        voice_service.create_incoming_call,
+        caller_hash=caller_hash,
+        room_name=room_name,
+        calls=calls,
     )
+    call_id = call.id
 
     try:
         dispatcher_token = _mint_token(
@@ -115,45 +129,23 @@ async def websocket_call(
         )
         caller_token = _mint_token(caller_hash, "Caller", room_name, publish=True)
 
-        location_meta: dict = {}
-        if geocode_task is not None:
-            try:
-                geo_data = await asyncio.wait_for(geocode_task, timeout=3.0)
-            except asyncio.TimeoutError:
-                logger.warning("Reverse geocode timed out for call {}", call_id)
-                geo_data = {"city": None, "state": None, "country": None, "zip": None}
-            await asyncio.to_thread(_save_geolocation, db, call_id, lat, lng, geo_data)
-            location_meta = {
-                "lat": lat,
-                "lng": lng,
-                "city": geo_data["city"],
-                "state": geo_data["state"],
-                "country": geo_data["country"],
-            }
+        location_meta = await _resolve_location(
+            call_id, lat, lng, calls=calls, geolocation=geolocation
+        )
 
-        async with LiveKitAPI(
-            url=settings.LIVEKIT_URL,
-            api_key=settings.LIVEKIT_API_KEY,
-            api_secret=settings.LIVEKIT_API_SECRET,
-        ) as lkapi:
-            await lkapi.agent_dispatch.create_dispatch(
-                CreateAgentDispatchRequest(
-                    agent_name=AGENT_NAME,
-                    room=room_name,
-                    metadata=json.dumps(
-                        {
-                            "call_id": str(call_id),
-                            "caller_identity": caller_hash,
-                            "location": location_meta,
-                        }
-                    ),
-                )
-            )
+        await _dispatch_agent(
+            room_name,
+            {
+                "call_id": str(call_id),
+                "caller_identity": caller_hash,
+                "location": location_meta,
+            },
+        )
 
-        await asyncio.to_thread(_mark_call_active, db, call_id)
+        await asyncio.to_thread(
+            voice_service.mark_active, call_id=call_id, calls=calls
+        )
 
-        # The client might have reloaded the page during setup. Don't try to
-        # send to a closed socket — the finally block will still clean up.
         if websocket.client_state != WebSocketState.CONNECTED:
             return
 
@@ -178,6 +170,8 @@ async def websocket_call(
         logger.exception("WS call {} crashed: {}", call_id, exc)
     finally:
         try:
-            await asyncio.to_thread(_close_call, db, call_id)
+            await asyncio.to_thread(
+                voice_service.close_call, call_id=call_id, calls=calls
+            )
         except Exception as exc:
             logger.warning("Failed to close call {} in DB: {}", call_id, exc)
