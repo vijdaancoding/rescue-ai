@@ -5,17 +5,16 @@ All connected clients (Dashboard, LiveCall page) receive every analysis_update
 broadcast. Clients filter by call_id on their end so each page only reacts
 to the call it cares about.
 """
-import logging
+from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 router = APIRouter(prefix="/ws", tags=["Dashboard"])
 
 
 class ConnectionManager:
-    """Thread-safe (asyncio) registry of active dashboard WebSocket connections."""
+    """Asyncio-safe registry of active dashboard WebSocket connections."""
 
     def __init__(self) -> None:
         self._connections: list[WebSocket] = []
@@ -23,28 +22,29 @@ class ConnectionManager:
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
         self._connections.append(ws)
-        logger.debug("Dashboard WS connected. Total: %d", len(self._connections))
+        logger.debug("Dashboard WS connected (total: {})", len(self._connections))
 
     def disconnect(self, ws: WebSocket) -> None:
         try:
             self._connections.remove(ws)
         except ValueError:
             pass
-        logger.debug("Dashboard WS disconnected. Total: %d", len(self._connections))
+        logger.debug("Dashboard WS disconnected (total: {})", len(self._connections))
 
     async def broadcast(self, data: dict) -> None:
-        """Send data to all connected dashboard clients, dropping dead connections."""
+        """Fan out to every connected client; drop connections that error out."""
         dead: list[WebSocket] = []
         for ws in list(self._connections):
             try:
                 await ws.send_json(data)
-            except Exception:
+            except Exception as exc:
+                logger.debug("Dropping dead WS: {}", exc)
                 dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
 
 
-# Singleton shared across the app — imported by api/analysis.py and main.py
+# Singleton shared across the app (imported by api/analysis.py).
 manager = ConnectionManager()
 
 
@@ -52,10 +52,11 @@ manager = ConnectionManager()
 async def dashboard_ws(websocket: WebSocket) -> None:
     await manager.connect(websocket)
     try:
-        # Keep the connection alive; client may send pings or we simply wait
+        # Keep the connection alive; we don't care about client-sent frames.
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Dashboard WS errored: {}", exc)
         manager.disconnect(websocket)

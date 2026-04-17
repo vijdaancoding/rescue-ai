@@ -1,7 +1,8 @@
 import { ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ShieldCheck, Eye, History, BarChart3, Settings, Search, LogOut, User, Bell } from 'lucide-react'
+import { ShieldCheck, Eye, History, BarChart3, Settings, LogOut, User, Sun, Moon, Activity } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 
 interface LayoutProps {
   children: ReactNode
@@ -12,64 +13,54 @@ export default function Layout({ children, title }: LayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
 
   const navItems = [
     { icon: Eye, label: 'Live View', path: '/dashboard' },
     { icon: History, label: 'Call History', path: '/call-history' },
     { icon: BarChart3, label: 'Analytics', path: '/analytics' },
+    { icon: Activity, label: 'System Health', path: '/health' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 
   const isActive = (path: string) => location.pathname === path
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 flex">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shadow-lg">
+      <aside className="w-60 bg-white border-r border-slate-200 dark:bg-[#050810] dark:border-white/[0.06] flex flex-col flex-shrink-0">
         {/* Logo */}
-        <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-teal-500 to-teal-600">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md">
-              <ShieldCheck className="w-6 h-6 text-teal-600" />
+        <div className="px-5 py-5 border-b border-slate-200 dark:border-white/[0.06]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-teal-50 border border-teal-200 dark:bg-cyan-500/15 dark:border-cyan-500/30 rounded-lg flex items-center justify-center">
+              <ShieldCheck className="w-4.5 h-4.5 text-teal-600 dark:text-cyan-400" style={{ width: '1.1rem', height: '1.1rem' }} />
             </div>
-            <span className="font-bold text-white text-sm">
-              Rescue AI
-            </span>
-          </div>
-        </div>
-
-        {/* User Profile */}
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center">
-              <User className="w-5 h-5 text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-900 truncate">
-                {user?.name || 'Operator'}
-              </p>
-              <p className="text-xs text-gray-600 truncate">{user?.operatorId || 'OP-1122'}</p>
+            <div>
+              <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100 tracking-wide">RESCUE AI</p>
+              <p className="text-[10px] text-slate-400 dark:text-zinc-500 tracking-wider uppercase">Command Center</p>
             </div>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4">
-          <ul className="space-y-2">
+        <nav className="flex-1 px-3 py-4">
+          <p className="px-2 mb-3 text-[10px] font-semibold text-slate-400 dark:text-zinc-600 uppercase tracking-widest">Navigation</p>
+          <ul className="space-y-0.5">
             {navItems.map((item) => {
               const Icon = item.icon
+              const active = isActive(item.path)
               return (
                 <li key={item.path}>
                   <button
                     onClick={() => navigate(item.path)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                      isActive(item.path)
-                        ? 'bg-gradient-to-r from-teal-500 to-teal-600 text-white shadow-md transform scale-105'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150 ${
+                      active
+                        ? 'bg-teal-50 text-teal-700 border-l-2 border-teal-600 pl-[10px] dark:bg-cyan-400/10 dark:text-cyan-400 dark:border-cyan-400'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/60'
                     }`}
                   >
-                    <Icon className="w-5 h-5" />
-                    <span className="font-medium">{item.label}</span>
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className={active ? 'font-medium' : ''}>{item.label}</span>
                   </button>
                 </li>
               )
@@ -77,57 +68,60 @@ export default function Layout({ children, title }: LayoutProps) {
           </ul>
         </nav>
 
-        {/* Logout */}
-        <div className="p-4 border-t border-gray-200">
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-600 hover:bg-red-50 transition-all duration-200"
-          >
-            <LogOut className="w-5 h-5" />
-            <span className="font-medium">Logout</span>
-          </button>
+        {/* Bottom user section */}
+        <div className="border-t border-slate-200 dark:border-white/[0.06]">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-white/[0.04]">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 bg-slate-200 dark:bg-zinc-700 rounded-full flex items-center justify-center flex-shrink-0">
+                <User className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-300" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-700 dark:text-zinc-300 truncate">{user?.name || 'Operator'}</p>
+                <p className="text-[10px] text-slate-400 dark:text-zinc-600 truncate">{user?.operatorId || 'OP-1122'}</p>
+              </div>
+            </div>
+          </div>
+          <div className="px-3 py-3">
+            <button
+              onClick={logout}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-red-600 hover:bg-red-50 dark:text-zinc-500 dark:hover:text-red-400 dark:hover:bg-red-500/10 transition-all duration-150"
+            >
+              <LogOut className="w-4 h-4 flex-shrink-0" />
+              <span>Log out</span>
+            </button>
+          </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Top Navigation */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
+        <header className="bg-white border-b border-slate-200 dark:bg-zinc-950 dark:border-white/[0.06] px-6 py-3.5 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-              <p className="text-sm text-gray-600 mt-0.5">
-                {new Date().toLocaleDateString('en-US', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
+              <h1 className="text-base font-semibold text-slate-900 dark:text-zinc-100">{title}</h1>
+              <p className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">
+                {new Date().toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
                 })}
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              {/* Search */}
-              <div className="relative hidden md:block">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search in site"
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent w-64 transition-all"
-                />
-              </div>
-
-              {/* Notifications */}
-              <button className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+            <div className="flex items-center gap-2">
+              {/* Theme toggle */}
+              <button
+                onClick={toggleTheme}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:text-zinc-500 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 transition-all duration-150"
+                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
-
-              {/* User Menu */}
-              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                <div className="w-8 h-8 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center">
-                  <User className="w-4 h-4 text-white" />
-                </div>
-                <span className="text-sm font-medium text-gray-700 hidden lg:block">
+              {/* User pill */}
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 border border-slate-200 dark:bg-zinc-800/60 dark:border-zinc-700/50 rounded-lg">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                <span className="text-xs font-medium text-slate-700 dark:text-zinc-300">
                   {user?.name?.split(' ')[0] || 'Operator'}
                 </span>
               </div>
