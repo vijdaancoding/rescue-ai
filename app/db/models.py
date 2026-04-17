@@ -83,6 +83,23 @@ class Dispatch(Base):
     ai_recommended = Column(Boolean, default=False)
 
 
+class UserSettings(Base):
+    """Per-user preferences stored server-side."""
+    __tablename__ = "user_settings"
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    display_name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    sound_alerts = Column(Boolean, default=True)
+    email_notifications = Column(Boolean, default=True)
+    emergency_alerts = Column(Boolean, default=True)
+    language = Column(String, default="english")
+    volume = Column(BigInteger, default=75)
+    microphone = Column(Boolean, default=True)
+    two_factor_auth = Column(Boolean, default=False)
+    session_timeout = Column(BigInteger, default=30)
+    updated_at = Column(DateTime(timezone=True), default=get_utc_now, onupdate=get_utc_now)
+
+
 class AuditLog(Base):
     """Audit trail for call-related actions."""
     __tablename__ = "audit_logs"
