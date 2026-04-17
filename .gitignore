@@ -216,7 +216,7 @@ CLAUDE.md
 
 # Archives 
 frontend/node_modules
-core/
+/core/
 
 # ML models 
 models/

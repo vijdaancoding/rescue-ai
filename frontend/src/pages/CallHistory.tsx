@@ -1,29 +1,29 @@
 import { useState, useEffect, useCallback } from 'react'
 import Layout from '../components/Layout'
-import { Phone, PhoneOff, Clock, Calendar, Filter, Download, Search, Shield, HeartPulse, Flame, Loader2 } from 'lucide-react'
+import { Phone, PhoneOff, Clock, Calendar, Filter, Search, Shield, HeartPulse, Flame, Loader2, Download } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import type { CallSummary } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const URGENCY_BADGE: Record<string, string> = {
-  critical: 'bg-red-100 text-red-700',
-  high: 'bg-orange-100 text-orange-700',
-  medium: 'bg-yellow-100 text-yellow-700',
-  low: 'bg-green-100 text-green-700',
+  critical: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400',
+  high:     'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-400',
+  medium:   'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+  low:      'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  Dispatched: 'bg-blue-100 text-blue-700',
-  FalseAlarm: 'bg-gray-100 text-gray-600',
-  Active: 'bg-green-100 text-green-700',
-  Incoming: 'bg-yellow-100 text-yellow-700',
+  Dispatched: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400',
+  FalseAlarm: 'bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-500',
+  Active:     'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
+  Incoming:   'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
 }
 
 const DISPATCH_ICON: Record<string, React.ReactNode> = {
-  police: <Shield className="w-3.5 h-3.5 text-blue-600" title="Police" />,
-  ambulance: <HeartPulse className="w-3.5 h-3.5 text-red-600" title="Ambulance" />,
-  firefighters: <Flame className="w-3.5 h-3.5 text-orange-600" title="Firefighters" />,
+  police:      <Shield   className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" aria-label="Police" />,
+  ambulance:   <HeartPulse className="w-3.5 h-3.5 text-red-600 dark:text-red-400" aria-label="Ambulance" />,
+  firefighters:<Flame    className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" aria-label="Firefighters" />,
 }
 
 function formatDuration(seconds: number | null): string {
@@ -48,7 +48,6 @@ export default function CallHistory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Filter state
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [spamFilter, setSpamFilter] = useState('')
@@ -73,64 +72,86 @@ export default function CallHistory() {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setCalls(await res.json())
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error loading calls')
     } finally {
       setLoading(false)
     }
   }, [token, statusFilter, spamFilter, dateFrom, dateTo, search])
 
   useEffect(() => {
-    const id = setTimeout(fetchCalls, 300) // debounce search
+    const id = setTimeout(fetchCalls, 300)
     return () => clearTimeout(id)
   }, [fetchCalls])
 
-  // Aggregate stats from current result set
-  const totalCalls = calls.length
-  const realCalls = calls.filter(c => c.spam_label === 'not_spam').length
-  const spamCalls = calls.filter(c => c.spam_label === 'spam').length
-  const dispatched = calls.filter(c => c.status === 'Dispatched').length
+  const totalCalls  = calls.length
+  const realCalls   = calls.filter(c => c.spam_label === 'not_spam').length
+  const spamCalls   = calls.filter(c => c.spam_label === 'spam').length
+  const dispatched  = calls.filter(c => c.status === 'Dispatched').length
+
+  const filterInputCls = `w-full pl-9 pr-4 py-2 rounded-lg text-sm transition-all
+    bg-white border border-slate-200 text-slate-900 placeholder:text-slate-400
+    dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-200
+    focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-cyan-500 focus:border-teal-500 dark:focus:border-cyan-500`
+
+  const dateInputCls = `flex-1 px-2 py-2 rounded-lg text-xs transition-all
+    bg-white border border-slate-200 text-slate-700
+    dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300
+    focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-cyan-500 focus:border-teal-500 dark:focus:border-cyan-500`
 
   return (
     <Layout title="Call History">
-      <div className="space-y-6">
+      <div className="space-y-5">
 
         {/* Header */}
-        <div className="card">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">Call History Log</h2>
-              <p className="text-gray-500 text-sm">Complete record of all emergency calls from Supabase</p>
-            </div>
-            <button className="btn btn-primary flex items-center gap-2 self-start">
-              <Download className="w-4 h-4" />
-              Export
-            </button>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800 dark:text-zinc-200">Call History Log</h2>
+            <p className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">Complete record from Supabase</p>
           </div>
+          <button className="btn btn-secondary flex items-center gap-2 self-start text-xs py-2">
+            <Download className="w-3.5 h-3.5" />
+            Export CSV
+          </button>
         </div>
 
+        {/* Stats row */}
+        {!loading && !error && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Total Calls',       value: totalCalls,  color: 'text-slate-900 dark:text-zinc-100' },
+              { label: 'Real Emergencies',  value: realCalls,   color: 'text-emerald-600 dark:text-emerald-400' },
+              { label: 'Prank / Spam',      value: spamCalls,   color: 'text-red-600 dark:text-red-400' },
+              { label: 'Dispatched',        value: dispatched,  color: 'text-blue-600 dark:text-blue-400' },
+            ].map(stat => (
+              <div key={stat.label} className="card py-4 text-center">
+                <p className={`text-2xl font-bold tabular ${stat.color}`}>{stat.value}</p>
+                <p className="text-xs text-slate-400 dark:text-zinc-600 mt-1">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Filters */}
-        <div className="card">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            {/* Search */}
+        <div className="card py-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
             <div className="relative lg:col-span-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search phone or city..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className={filterInputCls}
               />
             </div>
 
-            {/* Status filter */}
             <div className="relative">
-              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
               <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 appearance-none bg-white"
+                className={`${filterInputCls} appearance-none`}
               >
                 <option value="">All Statuses</option>
                 <option value="Active">Active</option>
@@ -140,13 +161,12 @@ export default function CallHistory() {
               </select>
             </div>
 
-            {/* Spam filter */}
             <div className="relative">
-              <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
               <select
                 value={spamFilter}
                 onChange={e => setSpamFilter(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 appearance-none bg-white"
+                className={`${filterInputCls} appearance-none`}
               >
                 <option value="">All Types</option>
                 <option value="not_spam">Real Emergencies</option>
@@ -154,51 +174,39 @@ export default function CallHistory() {
               </select>
             </div>
 
-            {/* Date range */}
-            <div className="flex gap-2 items-center">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={e => setDateFrom(e.target.value)}
-                className="flex-1 px-2 py-2.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
-              <span className="text-gray-400 text-xs">–</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={e => setDateTo(e.target.value)}
-                className="flex-1 px-2 py-2.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
+            <div className="flex gap-1.5 items-center">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={dateInputCls} />
+              <span className="text-slate-300 dark:text-zinc-600 text-xs">–</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={dateInputCls} />
             </div>
           </div>
         </div>
 
         {/* Table */}
-        <div className="card overflow-x-auto">
+        <div className="card overflow-x-auto p-0">
           {loading ? (
-            <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
-              <Loader2 className="w-5 h-5 animate-spin" />
+            <div className="flex items-center justify-center py-16 gap-3 text-slate-400 dark:text-zinc-600">
+              <Loader2 className="w-4 h-4 animate-spin" />
               <span className="text-sm">Loading calls...</span>
             </div>
           ) : error ? (
             <div className="text-center py-12">
-              <p className="text-red-600 text-sm font-medium">{error}</p>
+              <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
             </div>
           ) : calls.length === 0 ? (
             <div className="text-center py-12">
-              <Phone className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">No calls match your filters</p>
+              <Phone className="w-10 h-10 text-slate-300 dark:text-zinc-700 mx-auto mb-3" />
+              <p className="text-slate-400 dark:text-zinc-600 text-sm">No calls match your filters</p>
             </div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date & Time</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Duration</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone / Location</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Signal</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Dispatched</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <tr className="border-b border-slate-200 dark:border-zinc-800">
+                  {['Date & Time', 'Duration', 'Phone / Location', 'AI Signal', 'Dispatched', 'Status'].map(h => (
+                    <th key={h} className="text-left py-3 px-5 text-[10px] font-semibold text-slate-400 dark:text-zinc-600 uppercase tracking-widest">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -206,56 +214,52 @@ export default function CallHistory() {
                   const { date, time } = formatDateTime(call.start_time)
                   const isSpam = call.spam_label === 'spam'
                   return (
-                    <tr key={call.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                      <td className="py-3.5 px-4">
+                    <tr key={call.id} className="border-b border-slate-100 dark:border-zinc-800/50 hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors">
+                      <td className="py-3.5 px-5">
                         <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                          <Calendar className="w-3.5 h-3.5 text-slate-300 dark:text-zinc-600 flex-shrink-0" />
                           <div>
-                            <p className="text-sm font-medium text-gray-900">{date}</p>
-                            <p className="text-xs text-gray-400">{time}</p>
+                            <p className="text-sm font-medium text-slate-800 dark:text-zinc-200 tabular">{date}</p>
+                            <p className="text-xs text-slate-400 dark:text-zinc-600 tabular">{time}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1.5 text-sm text-gray-600">
-                          <Clock className="w-3.5 h-3.5 text-gray-300" />
-                          {formatDuration(call.duration_seconds)}
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-zinc-400">
+                          <Clock className="w-3 h-3 text-slate-300 dark:text-zinc-600" />
+                          <span className="tabular">{formatDuration(call.duration_seconds)}</span>
                         </div>
                       </td>
-                      <td className="py-3.5 px-4">
-                        <p className="text-sm text-gray-800 font-mono">{call.caller_phone || '—'}</p>
-                        <p className="text-xs text-gray-400">{[call.caller_city, call.caller_country].filter(Boolean).join(', ') || '—'}</p>
+                      <td className="py-3.5 px-5">
+                        <p className="text-sm text-slate-700 dark:text-zinc-200 font-mono">{call.caller_phone || '—'}</p>
+                        <p className="text-xs text-slate-400 dark:text-zinc-600">{[call.caller_city, call.caller_country].filter(Boolean).join(', ') || '—'}</p>
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-5">
                         <div className="flex flex-col gap-1">
                           {call.spam_label ? (
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold w-fit ${isSpam ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold w-fit ${isSpam ? 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'}`}>
                               {isSpam ? <PhoneOff className="w-3 h-3" /> : <Phone className="w-3 h-3" />}
-                              {isSpam ? 'Spam' : 'Real'} {call.scam_probability != null ? `· ${call.scam_probability}%` : ''}
+                              {isSpam ? 'Spam' : 'Real'}{call.scam_probability != null ? ` · ${call.scam_probability}%` : ''}
                             </span>
-                          ) : <span className="text-xs text-gray-300">No analysis</span>}
+                          ) : <span className="text-xs text-slate-300 dark:text-zinc-700">—</span>}
                           {call.urgency_level && (
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold w-fit ${URGENCY_BADGE[call.urgency_level] ?? 'bg-gray-100 text-gray-500'}`}>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold w-fit ${URGENCY_BADGE[call.urgency_level] ?? 'bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-500'}`}>
                               {call.urgency_level.charAt(0).toUpperCase() + call.urgency_level.slice(1)}
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-5">
                         {call.dispatch_types.length > 0 ? (
-                          <div className="flex gap-1">
+                          <div className="flex gap-1.5">
                             {call.dispatch_types.map(t => (
-                              <span key={t} className="flex items-center gap-0.5" title={t}>
-                                {DISPATCH_ICON[t]}
-                              </span>
+                              <span key={t} className="flex items-center" title={t}>{DISPATCH_ICON[t]}</span>
                             ))}
                           </div>
-                        ) : (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
+                        ) : <span className="text-xs text-slate-300 dark:text-zinc-700">—</span>}
                       </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[call.status ?? ''] ?? 'bg-gray-100 text-gray-500'}`}>
+                      <td className="py-3.5 px-5">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[call.status ?? ''] ?? 'bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-500'}`}>
                           {call.status || '—'}
                         </span>
                       </td>
@@ -266,28 +270,6 @@ export default function CallHistory() {
             </table>
           )}
         </div>
-
-        {/* Stats */}
-        {!loading && !error && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="card text-center py-4">
-              <p className="text-3xl font-bold text-gray-900">{totalCalls}</p>
-              <p className="text-xs text-gray-500 mt-1">Total Calls</p>
-            </div>
-            <div className="card text-center py-4">
-              <p className="text-3xl font-bold text-green-600">{realCalls}</p>
-              <p className="text-xs text-gray-500 mt-1">Real Emergencies</p>
-            </div>
-            <div className="card text-center py-4">
-              <p className="text-3xl font-bold text-red-600">{spamCalls}</p>
-              <p className="text-xs text-gray-500 mt-1">Prank / Spam</p>
-            </div>
-            <div className="card text-center py-4">
-              <p className="text-3xl font-bold text-blue-600">{dispatched}</p>
-              <p className="text-xs text-gray-500 mt-1">Dispatched</p>
-            </div>
-          </div>
-        )}
       </div>
     </Layout>
   )
