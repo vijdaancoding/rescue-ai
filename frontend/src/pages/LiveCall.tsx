@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Room, RoomEvent, type TranscriptionSegment } from 'livekit-client'
 import Layout from '../components/Layout'
-import { AlertTriangle, Phone, Activity, Mic, PhoneOff, ShieldAlert, Zap, Siren, Bell } from 'lucide-react'
+import { AlertTriangle, Phone, Activity, Mic, PhoneOff, ShieldAlert, Zap, Siren, Bell, FlaskConical } from 'lucide-react'
 import type { AnalysisData } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -41,6 +41,7 @@ export default function LiveCall() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [callId, setCallId] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null)
+  const [callerTestUrl, setCallerTestUrl] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const dashboardWsRef = useRef<WebSocket | null>(null)
@@ -58,18 +59,25 @@ export default function LiveCall() {
 
   useEffect(() => {
     let isCleanup = false
-    const ws = new WebSocket(`${API_WS_URL}/ws/call`)
-    wsRef.current = ws
 
-    ws.onopen = () => setConnectionStatus('connecting')
+    const openWebSocket = (lat?: number, lng?: number) => {
+      const params = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : ''
+      const ws = new WebSocket(`${API_WS_URL}/ws/call${params}`)
+      wsRef.current = ws
+
+      ws.onopen = () => setConnectionStatus('connecting')
 
     ws.onmessage = async (event) => {
       if (isCleanup) return
       let payload: { token: string; caller_token: string; room_name: string; livekit_url: string; call_id: string }
       try { payload = JSON.parse(event.data) } catch { return }
 
-      const { token, livekit_url, call_id } = payload
+      const { token, caller_token, room_name, livekit_url, call_id } = payload
       setCallId(call_id)
+
+      // Build the test caller URL so a second tab can simulate the caller
+      const testParams = new URLSearchParams({ token: caller_token, livekit_url, room_name })
+      setCallerTestUrl(`/test-caller?${testParams.toString()}`)
 
       const room = new Room()
       roomRef.current = room
@@ -87,12 +95,25 @@ export default function LiveCall() {
       }
     }
 
-    ws.onerror = () => setConnectionStatus('error')
-    ws.onclose = () => { if (!isCleanup) setConnectionStatus('ended') }
+      ws.onerror = () => setConnectionStatus('error')
+      ws.onclose = () => { if (!isCleanup) setConnectionStatus('ended') }
+    }
+
+    // Request GPS before connecting — agent uses it to skip asking for location.
+    // If denied or unavailable, fall through and open the WebSocket without coords.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { if (!isCleanup) openWebSocket(pos.coords.latitude, pos.coords.longitude) },
+        ()      => { if (!isCleanup) openWebSocket() },
+        { timeout: 5000, maximumAge: 60000 },
+      )
+    } else {
+      openWebSocket()
+    }
 
     return () => {
       isCleanup = true
-      ws.close()
+      wsRef.current?.close()
       roomRef.current?.disconnect()
     }
   }, [])
@@ -187,6 +208,19 @@ export default function LiveCall() {
                 <p className="text-2xl font-bold tabular text-slate-900 dark:text-zinc-100">{formatTime(callDuration)}</p>
                 <p className="text-xs text-slate-400 dark:text-zinc-600">Duration</p>
               </div>
+              {callerTestUrl && (
+                <a
+                  href={callerTestUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-cyan-300 text-slate-600 hover:text-cyan-600
+                    dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:border-zinc-700 dark:hover:border-cyan-500/50 dark:text-zinc-300 dark:hover:text-cyan-400
+                    rounded-lg text-sm font-medium transition-all duration-200"
+                >
+                  <FlaskConical className="w-4 h-4" />
+                  Test Caller
+                </a>
+              )}
               <button
                 onClick={handleEndCall}
                 disabled={connectionStatus === 'ended'}

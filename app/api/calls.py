@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_current_user
-from app.db.models import CallSession, AiMetadata, Dispatch, User
+from app.db.models import CallSession, AiMetadata, Dispatch, Geolocation, User
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
 
@@ -183,10 +183,33 @@ def update_call_status(
     return {"call_id": call_id, "status": call.status}
 
 
-@router.post("/dummy-call")
-def create_dummy_call(db: Session = Depends(get_db)):
-    new_call = CallSession(caller_hash="anon_caller_xyz", status="Incoming")
-    db.add(new_call)
-    db.commit()
-    db.refresh(new_call)
-    return {"msg": "Dummy call created", "call_id": new_call.id}
+@router.get("/context/{room_name}")
+def get_call_context(room_name: str, db: Session = Depends(get_db)):
+    """
+    Called by the voice agent at session startup to fetch any pre-known location
+    context for this call. No auth required — internal agent use only.
+    Returns has_location=False if nothing is stored yet.
+    """
+    call = db.query(CallSession).filter(CallSession.room_name == room_name).first()
+    if not call:
+        return {"has_location": False}
+
+    geo = (
+        db.query(Geolocation)
+        .filter(Geolocation.call_id == call.id)
+        .order_by(Geolocation.created_at.desc())
+        .first()
+    )
+
+    has_location = bool(call.caller_city or (geo and geo.latitude is not None))
+    return {
+        "has_location": has_location,
+        "call_id": str(call.id),
+        "city": call.caller_city,
+        "state": call.caller_state,
+        "country": call.caller_country,
+        "lat": geo.latitude if geo else None,
+        "lng": geo.longitude if geo else None,
+    }
+
+

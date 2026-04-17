@@ -12,7 +12,7 @@ router = APIRouter(prefix="/twilio", tags=["Twilio"])
 
 
 @router.post("/voice")
-async def twilio_voice_webhook(
+def twilio_voice_webhook(
     db: Session = Depends(get_db),
     From: str = Form(default=""),
     CallSid: str = Form(default=""),
@@ -26,26 +26,25 @@ async def twilio_voice_webhook(
     Checks if the user just submitted exact GPS via the PWA.
     If not, falls back to Twilio's rough cell-tower estimates.
     """
-
     # 1. Look for a pending PWA location submission for this phone number
     existing_session = (
         db.query(CallSession)
         .filter(
             CallSession.caller_phone == From,
-            CallSession.status == "WaitingForCall"
+            CallSession.status == "WaitingForCall",
         )
         .order_by(CallSession.start_time.desc())
         .first()
     )
 
     if existing_session:
-        # User used the PWA! Update the pending session with Twilio's live Call ID
+        # User used the PWA — update the pending session with Twilio's live Call ID
         existing_session.caller_hash = f"twilio-{CallSid}"
         existing_session.status = "Active"
         existing_session.start_time = datetime.now(timezone.utc)
         db.commit()
     else:
-        # User dialed manually (No PWA used). Create a brand new session using Twilio's data.
+        # User dialed manually (no PWA) — create a new session from Twilio's data
         call = CallSession(
             id=uuid.uuid4(),
             caller_hash=f"twilio-{CallSid}",
@@ -74,12 +73,12 @@ async def twilio_voice_webhook(
 
 
 @router.post("/status")
-async def twilio_call_status(
+def twilio_call_status(
     db: Session = Depends(get_db),
     CallSid: str = Form(default=""),
     CallStatus: str = Form(default=""),
 ):
-    """Handles call hang-ups and status changes"""
+    """Handle Twilio call-status webhooks (hang-ups, failures, etc.)."""
     if CallStatus in ("completed", "failed", "busy", "no-answer", "canceled"):
         call = (
             db.query(CallSession)
