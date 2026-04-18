@@ -18,8 +18,12 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
 
-    OPENCAGE_API_KEY: str = ""  # reverse geocoding
+    OPENCAGE_API_KEY: str = ""  # deprecated — kept for backward-compat, not used
     GOOGLE_API_KEY: str = ""
+    GOOGLE_MAPS_API_KEY: str = ""  # only used when GEOCODING_PROVIDER=google
+
+    # Reverse-geocoding provider: "nominatim" (default, free, no key) or "google".
+    GEOCODING_PROVIDER: str = "nominatim"
 
     # Comma-separated list of allowed CORS origins; "*" for any.
     CORS_ORIGINS: str = "*"
