@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Room, RoomEvent, type TranscriptionSegment } from 'livekit-client'
 import Layout from '../components/Layout'
 import { AlertTriangle, Phone, Activity, Mic, PhoneOff, ShieldAlert, Zap, Siren, Bell, Loader2, PhoneOff as PhoneOffIcon, FlaskConical } from 'lucide-react'
@@ -39,6 +39,9 @@ const DISPATCH_LABEL: Record<string, string> = {
 export default function LiveCall() {
   const navigate = useNavigate()
   const { token: authToken } = useAuth()
+  // Optional URL param: /live/:callId locks the page to that specific call.
+  // Absent → /live polls /calls/?status=Active&limit=1 for whichever call is live right now.
+  const { callId: pinnedCallId } = useParams<{ callId?: string }>()
 
   const [status, setStatus] = useState<Status>('loading')
   const [errorMsg, setErrorMsg] = useState('')
@@ -151,6 +154,30 @@ export default function LiveCall() {
       }
     }
 
+    const fetchPinned = async (): Promise<void> => {
+      try {
+        const res = await fetch(`${API_URL}/calls/${pinnedCallId}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+        if (!res.ok) {
+          if (!cleaned) {
+            setStatus('error')
+            setErrorMsg(
+              res.status === 404 ? 'Call not found.' : `Backend returned ${res.status}`,
+            )
+          }
+          return
+        }
+        const call: CallSummary = await res.json()
+        if (!cleaned) await joinCall(call)
+      } catch {
+        if (!cleaned) {
+          setStatus('error')
+          setErrorMsg('Network error reaching backend.')
+        }
+      }
+    }
+
     const pollForActive = async () => {
       try {
         const res = await fetch(`${API_URL}/calls/?status=Active&limit=1`, {
@@ -181,11 +208,16 @@ export default function LiveCall() {
       }
     }
 
-    void pollForActive()
-    pollTimer = setInterval(() => {
-      // Only keep polling while we're NOT already connected to a call
-      if (joinedCallIdRef.current === null) void pollForActive()
-    }, POLL_INTERVAL_MS)
+    if (pinnedCallId) {
+      // Observing a specific call — fetch once, don't poll for others.
+      void fetchPinned()
+    } else {
+      void pollForActive()
+      pollTimer = setInterval(() => {
+        // Only keep polling while we're NOT already connected to a call
+        if (joinedCallIdRef.current === null) void pollForActive()
+      }, POLL_INTERVAL_MS)
+    }
 
     return () => {
       cleaned = true
@@ -193,7 +225,7 @@ export default function LiveCall() {
       roomRef.current?.disconnect()
       joinedCallIdRef.current = null
     }
-  }, [authToken])
+  }, [authToken, pinnedCallId])
 
   // Dashboard WebSocket for AI analysis updates (filtered by current callId)
   useEffect(() => {

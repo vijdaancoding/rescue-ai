@@ -11,7 +11,6 @@ import Settings from './pages/Settings'
 import TestCaller from './pages/TestCaller'
 import Dispatch from './pages/Dispatch'
 import Health from './pages/Health'
-import CallListener from './pages/CallListener'
 import TestCall from './pages/TestCall'
 
 function App() {
@@ -37,6 +36,11 @@ function App() {
                 <LiveCall />
               </ProtectedRoute>
             } />
+            <Route path="/live/:callId" element={
+              <ProtectedRoute>
+                <LiveCall />
+              </ProtectedRoute>
+            } />
             <Route path="/call-history" element={
               <ProtectedRoute>
                 <CallHistory />
@@ -57,9 +61,10 @@ function App() {
                 <Dispatch />
               </ProtectedRoute>
             } />
+            {/* /listen/:callId kept as backward-compat alias → LiveCall handles both */}
             <Route path="/listen/:callId" element={
               <ProtectedRoute>
-                <CallListener />
+                <LiveCall />
               </ProtectedRoute>
             } />
             <Route path="/test-call" element={

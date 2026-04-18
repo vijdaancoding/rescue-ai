@@ -62,6 +62,26 @@ def get_calls(
     )
 
 
+@router.get("/{call_id}", response_model=CallSummary)
+def get_call(
+    call_id: str,
+    calls: CallRepository = Depends(get_call_repo),
+    ai_metadata: AiMetadataRepository = Depends(get_ai_metadata_repo),
+    dispatches: DispatchRepository = Depends(get_dispatch_repo),
+    geolocation: GeolocationRepository = Depends(get_geolocation_repo),
+    current_user: User = Depends(get_current_user),
+) -> CallSummary:
+    """Single-call summary — same shape as the list endpoint, for observers
+    that want to watch a specific call (e.g. the Listen page)."""
+    return calls_service.get_one(
+        call_id,
+        calls=calls,
+        ai_metadata=ai_metadata,
+        dispatches=dispatches,
+        geolocation=geolocation,
+    )
+
+
 @router.patch("/{call_id}/status")
 def update_call_status(
     call_id: str,

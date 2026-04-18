@@ -108,6 +108,23 @@ def list_calls(
     ]
 
 
+def get_one(
+    call_id: str,
+    *,
+    calls: CallRepository,
+    ai_metadata: AiMetadataRepository,
+    dispatches: DispatchRepository,
+    geolocation: GeolocationRepository,
+) -> CallSummary:
+    call = calls.get(uuid.UUID(call_id))
+    if not call:
+        raise NotFoundError("Call not found")
+    meta = ai_metadata.latest_for_calls([call.id]).get(str(call.id))
+    dispatch_types = dispatches.types_by_call([call.id]).get(str(call.id), [])
+    geo = geolocation.latest_for_calls([call.id]).get(str(call.id))
+    return _build_summary(call, meta, dispatch_types, geo)
+
+
 def update_status(
     call_id: str, new_status: str, *, calls: CallRepository
 ) -> dict[str, str]:

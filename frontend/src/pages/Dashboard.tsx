@@ -225,7 +225,7 @@ export default function Dashboard() {
 
               {activeCall && (
               <div
-                onClick={() => navigate(`/listen/${activeCall.id}`)}
+                onClick={() => navigate(`/live/${activeCall.id}`)}
                 className="cursor-pointer rounded-2xl border-2 border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-500/[0.06] hover:border-red-400 dark:hover:border-red-500/60 transition-all duration-200 overflow-hidden"
               >
                 {/* Card top */}
@@ -311,7 +311,7 @@ export default function Dashboard() {
 
                   {/* Listen Live button — Twilio auto-answers, so dispatcher observes */}
                   <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/listen/${activeCall.id}`) }}
+                    onClick={(e) => { e.stopPropagation(); navigate(`/live/${activeCall.id}`) }}
                     className="w-full flex items-center justify-center gap-2 py-2.5 bg-red-600 hover:bg-red-500 active:scale-[0.99] text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-lg shadow-red-500/20"
                   >
                     <PhoneIncoming className="w-4 h-4" />
