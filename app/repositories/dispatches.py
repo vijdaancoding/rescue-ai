@@ -12,6 +12,12 @@ from app.db.models import Dispatch
 class DispatchRepository(Protocol):
     def get(self, dispatch_id: uuid.UUID) -> Optional[Dispatch]: ...
     def list_for_call(self, call_id: uuid.UUID) -> list[Dispatch]: ...
+    def list_all(
+        self,
+        *,
+        status_filter: Optional[str] = None,
+        type_filter: Optional[str] = None,
+    ) -> list[Dispatch]: ...
     def existing_types(self, call_id: uuid.UUID) -> set[str]: ...
     def create_many(self, rows: list[Dispatch]) -> None: ...
     def save(self, row: Dispatch) -> None: ...
@@ -38,6 +44,19 @@ class SqlDispatchRepository:
             .order_by(Dispatch.created_at.asc())
             .all()
         )
+
+    def list_all(
+        self,
+        *,
+        status_filter: Optional[str] = None,
+        type_filter: Optional[str] = None,
+    ) -> list[Dispatch]:
+        query = self._db.query(Dispatch)
+        if status_filter:
+            query = query.filter(Dispatch.status == status_filter)
+        if type_filter:
+            query = query.filter(Dispatch.dispatch_type == type_filter)
+        return query.order_by(Dispatch.created_at.desc()).all()
 
     def existing_types(self, call_id: uuid.UUID) -> set[str]:
         rows = (

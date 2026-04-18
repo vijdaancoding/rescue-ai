@@ -56,8 +56,29 @@ def update_call_status(
     body: StatusUpdate,
     calls: CallRepository = Depends(get_call_repo),
     current_user: User = Depends(get_current_user),
-) -> dict[str, str]:
-    return calls_service.update_status(call_id, body.status, calls=calls)
+) -> dict:
+    result = calls_service.update_status(call_id, body.status, calls=calls)
+    import uuid as _uuid
+    call = calls.get(_uuid.UUID(call_id))
+    if call:
+        result["end_time"] = call.end_time.isoformat() if call.end_time else None
+    return result
+
+
+@router.patch("/{call_id}")
+def update_call_status_short(
+    call_id: str,
+    body: StatusUpdate,
+    calls: CallRepository = Depends(get_call_repo),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Alias for /{call_id}/status."""
+    result = calls_service.update_status(call_id, body.status, calls=calls)
+    import uuid as _uuid
+    call = calls.get(_uuid.UUID(call_id))
+    if call:
+        result["end_time"] = call.end_time.isoformat() if call.end_time else None
+    return result
 
 
 @router.get("/context/{room_name}", response_model=CallContext)
@@ -68,3 +89,31 @@ def get_call_context(
 ) -> CallContext:
     """Internal agent-facing endpoint; no auth required."""
     return calls_service.get_context(room_name, calls=calls, geolocation=geolocation)
+
+
+@router.get("/{call_id}/context")
+def get_call_context_by_id(
+    call_id: str,
+    calls: CallRepository = Depends(get_call_repo),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return full call details by call_id."""
+    import uuid as _uuid
+    try:
+        call = calls.get(_uuid.UUID(call_id))
+    except ValueError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Invalid call_id")
+    if not call:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Call not found")
+    return {
+        "id": str(call.id),
+        "status": call.status,
+        "caller_phone": call.caller_phone,
+        "caller_city": call.caller_city,
+        "caller_state": call.caller_state,
+        "caller_country": call.caller_country,
+        "start_time": call.start_time.isoformat() if call.start_time else None,
+        "end_time": call.end_time.isoformat() if call.end_time else None,
+    }

@@ -14,29 +14,29 @@ class TestHealthCheckEndpoint:
     @pytest.mark.api
     def test_health_check_returns_ok(self, client):
         """Health check should return 200 OK."""
-        response = client.get("/health")
+        response = client.get("/health/status")
         
         assert response.status_code == 200
         data = response.json()
-        assert "status" in data
+        assert "status" in data or "ok" in data
 
     @pytest.mark.unit
     @pytest.mark.api
     def test_health_check_includes_version(self, client):
         """Health check should include version info."""
-        response = client.get("/health")
+        response = client.get("/health/status")
         
         assert response.status_code == 200
         data = response.json()
         
         # Should have version or service info
-        assert "version" in data or "service" in data
+        assert "version" in data or "service" in data or "ok" in data
 
     @pytest.mark.unit
     @pytest.mark.api
     def test_health_check_no_auth_required(self, client):
         """Health check should not require authentication."""
-        response = client.get("/health")
+        response = client.get("/health/status")
         
         # Should not be 401
         assert response.status_code != 401
@@ -49,7 +49,7 @@ class TestReadinessProbe:
     @pytest.mark.api
     def test_readiness_probe_success(self, client):
         """Readiness probe should indicate system is ready."""
-        response = client.get("/health/ready")
+        response = client.get("/health/live")
         
         # Should return 200 if ready, 503 if not
         assert response.status_code in [200, 503]

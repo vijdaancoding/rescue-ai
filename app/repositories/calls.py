@@ -119,3 +119,39 @@ class SqlCallRepository:
             .limit(limit)
             .all()
         )
+
+    def get_by_id(self, call_id: uuid.UUID) -> Optional[CallSession]:
+        return self.get(call_id)
+
+    def list(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        status_filter: Optional[str] = None,
+    ) -> list[CallSession]:
+        return self.list_filtered(
+            status=status_filter,
+            spam_label=None,
+            date_from=None,
+            date_to=None,
+            search=None,
+            offset=offset,
+            limit=limit,
+        )
+
+    def update(self, call_id: uuid.UUID, fields: dict) -> None:
+        call = self.get(call_id)
+        if call:
+            for k, v in fields.items():
+                setattr(call, k, v)
+            self.save(call)
+
+    def get_latest_metadata(self, call_id: uuid.UUID):
+        from app.db.models import AiMetadata as _AiMetadata
+        return (
+            self._db.query(_AiMetadata)
+            .filter(_AiMetadata.call_id == call_id)
+            .order_by(_AiMetadata.created_at.desc())
+            .first()
+        )

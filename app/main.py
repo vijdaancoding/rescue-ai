@@ -10,6 +10,7 @@ from app.api import analysis as analysis_router
 from app.api import analytics as analytics_router
 from app.api import dashboard_ws
 from app.api import dispatches as dispatches_router
+from app.api.dispatches import simple_router as dispatches_simple_router
 from app.api import health as health_router
 from app.api import settings as settings_router
 from app.api.errors import install_error_handlers
@@ -65,6 +66,7 @@ app.include_router(location_endpoint.router)
 app.include_router(analysis_router.router)    # POST /api/analysis/{call_id}
 app.include_router(dashboard_ws.router)       # WS  /ws/dashboard
 app.include_router(dispatches_router.router)  # POST/GET/PATCH /api/dispatches
+app.include_router(dispatches_simple_router)  # POST/GET/PATCH /dispatches
 app.include_router(analytics_router.router)   # GET /api/analytics/*
 app.include_router(health_router.router)      # /health/* + WS /health/ws
 app.include_router(settings_router.router)    # GET/PUT /api/settings

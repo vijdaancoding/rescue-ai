@@ -10,7 +10,7 @@ def authenticate(
     *, username: str, password: str, users: UserRepository
 ) -> TokenResponse:
     user = users.get_by_username(username)
-    if user is None or not verify_password(password, user.password_hash):
+    if user is None or not user.is_active or not verify_password(password, user.password_hash):
         raise AuthError("Incorrect username or password")
     token = create_access_token(data={"sub": user.username})
     return TokenResponse(access_token=token)

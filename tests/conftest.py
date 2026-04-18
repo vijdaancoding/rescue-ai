@@ -26,11 +26,11 @@ from app.db.models import User, CallSession, AiMetadata, Dispatch, Geolocation, 
 from app.main import app
 from app.core.security import get_password_hash, create_access_token
 from app.api.deps import get_db, get_user_repo
-from app.repositories.users import UserRepository
-from app.repositories.calls import CallRepository
-from app.repositories.dispatches import DispatchRepository
-from app.repositories.ai_metadata import AiMetadataRepository
-from app.repositories.geolocation import GeolocationRepository
+from app.repositories.users import SqlUserRepository
+from app.repositories.calls import SqlCallRepository
+from app.repositories.dispatches import SqlDispatchRepository
+from app.repositories.ai_metadata import SqlAiMetadataRepository
+from app.repositories.geolocation import SqlGeolocationRepository
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -206,6 +206,7 @@ def test_dispatch(db_session: Session, test_call: CallSession) -> Dispatch:
 def test_geolocation(db_session: Session, test_call: CallSession) -> Geolocation:
     """Create a geolocation record."""
     geo = Geolocation(
+        id=1,
         call_id=test_call.id,
         latitude=24.8607,
         longitude=67.0011,
@@ -244,33 +245,33 @@ def invalid_auth_headers() -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def user_repo(db_session: Session) -> UserRepository:
+def user_repo(db_session: Session) -> SqlUserRepository:
     """Create a user repository instance."""
-    return UserRepository(db_session)
+    return SqlUserRepository(db_session)
 
 
 @pytest.fixture
-def call_repo(db_session: Session) -> CallRepository:
+def call_repo(db_session: Session) -> SqlCallRepository:
     """Create a call repository instance."""
-    return CallRepository(db_session)
+    return SqlCallRepository(db_session)
 
 
 @pytest.fixture
-def dispatch_repo(db_session: Session) -> DispatchRepository:
+def dispatch_repo(db_session: Session) -> SqlDispatchRepository:
     """Create a dispatch repository instance."""
-    return DispatchRepository(db_session)
+    return SqlDispatchRepository(db_session)
 
 
 @pytest.fixture
-def ai_metadata_repo(db_session: Session) -> AiMetadataRepository:
+def ai_metadata_repo(db_session: Session) -> SqlAiMetadataRepository:
     """Create an AI metadata repository instance."""
-    return AiMetadataRepository(db_session)
+    return SqlAiMetadataRepository(db_session)
 
 
 @pytest.fixture
-def geolocation_repo(db_session: Session) -> GeolocationRepository:
+def geolocation_repo(db_session: Session) -> SqlGeolocationRepository:
     """Create a geolocation repository instance."""
-    return GeolocationRepository(db_session)
+    return SqlGeolocationRepository(db_session)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -327,10 +328,10 @@ def mock_livekit_agent():
 def mock_onnx_runner():
     """Mock ONNX model runner."""
     with patch("app.analysis.onnx_runner.load") as mock_load, \
-         patch("app.analysis.onnx_runner.run") as mock_run:
+         patch("app.analysis.onnx_runner.predict", new_callable=AsyncMock) as mock_predict:
         mock_load.return_value = None
-        mock_run.return_value = {"spam_score": 0.35, "label": "not_spam"}
-        yield {"load": mock_load, "run": mock_run}
+        mock_predict.return_value = {"spam_score": 0.35, "spam_label": "not_spam"}
+        yield {"load": mock_load, "run": mock_predict}
 
 
 @pytest.fixture

@@ -20,6 +20,7 @@ class DispatchCreate(BaseModel):
 
 class DispatchStatusUpdate(BaseModel):
     status: str
+    notes: Optional[str] = None
 
 
 class DispatchOut(BaseModel):

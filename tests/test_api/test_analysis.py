@@ -52,7 +52,7 @@ class TestAnalysisPipelineOrchestration:
         """Analysis should fail gracefully if both models fail."""
         from app.analysis.pipeline import run_analysis
         
-        with patch("app.analysis.onnx_runner.run", side_effect=Exception("ONNX Error")), \
+        with patch("app.analysis.onnx_runner.predict", side_effect=Exception("ONNX Error")), \
              patch("app.analysis.gemini_analyzer.analyze", side_effect=Exception("Gemini Error")):
             
             result = await run_analysis(

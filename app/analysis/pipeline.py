@@ -133,3 +133,40 @@ async def run(call_id: str, transcript: str, ws_manager) -> None:
         urgency_score * 100,
         round(processing_latency * 1000),
     )
+
+
+def validate_input(transcript: str) -> bool:
+    """Return True if transcript is non-empty, False otherwise."""
+    return bool(transcript and transcript.strip())
+
+
+async def run_analysis(transcript: str, call_id: str) -> dict | None:
+    """
+    Simplified entry point for tests — runs both models without DB persistence
+    or WebSocket broadcast.
+    """
+    if not validate_input(transcript):
+        return None
+
+    onnx_result, gemini_result = await asyncio.gather(
+        onnx_runner.predict(transcript),
+        gemini_analyzer.analyze(transcript),
+        return_exceptions=True,
+    )
+
+    if isinstance(onnx_result, Exception) and isinstance(gemini_result, Exception):
+        return None
+
+    if isinstance(onnx_result, Exception):
+        onnx_result = {"spam_score": 0.0, "spam_label": "not_spam"}
+    if isinstance(gemini_result, Exception):
+        gemini_result = {"spam_score": 0.0, "spam_label": "not_spam", "urgency_label": "medium"}
+
+    combined_spam_score = round(
+        (onnx_result["spam_score"] + gemini_result.get("spam_score", 0.0)) / 2, 4
+    )
+    return {
+        "spam_score": round(combined_spam_score * 100),
+        "spam_label": "spam" if combined_spam_score >= 0.5 else "not_spam",
+        "urgency_label": gemini_result.get("urgency_label", "medium"),
+    }

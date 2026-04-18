@@ -70,7 +70,11 @@ def list_for_call(
 
 
 def update_status(
-    dispatch_id: str, new_status: str, *, dispatches: DispatchRepository
+    dispatch_id: str,
+    new_status: str,
+    *,
+    dispatches: DispatchRepository,
+    notes: Optional[str] = None,
 ) -> DispatchOut:
     if new_status not in VALID_DISPATCH_STATUSES:
         raise ValidationError(
@@ -80,5 +84,7 @@ def update_status(
     if not row:
         raise NotFoundError("Dispatch not found")
     row.status = new_status
+    if notes is not None:
+        row.notes = notes
     dispatches.save(row)
     return _to_out(row)

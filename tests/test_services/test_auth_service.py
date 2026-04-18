@@ -24,8 +24,8 @@ class TestAuthenticateService:
         )
         
         assert result is not None
-        assert "access_token" in result
-        assert result["token_type"] == "bearer"
+        assert result.access_token
+        assert result.token_type == "bearer"
 
     @pytest.mark.unit
     @pytest.mark.service

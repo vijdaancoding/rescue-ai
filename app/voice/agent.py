@@ -279,29 +279,31 @@ async def entrypoint(ctx: agents.JobContext):
 
 
 
+async def connect_to_room(room_name: str, participant_name: str) -> rtc.Room:
+    """Connect to a LiveKit room and return the room object."""
+    room = rtc.Room()
+    token = os.getenv("LIVEKIT_TOKEN", "")
+    url = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
+    await room.connect(url, token)
+    return room
+
+
 async def init_voice_agent(
     room_name: str,
     participant_name: str = "ai_agent",
     call_id: str | None = None,
     location_context: dict | None = None,
+    context: dict | None = None,
 ) -> Assistant:
-    """
-    Initialize and return a voice agent instance.
-    
-    Used for testing and direct agent instantiation.
-    
-    Args:
-        room_name: LiveKit room name
-        participant_name: Participant name for the agent
-        call_id: Call session ID (optional)
-        location_context: Location context data (optional)
-        
-    Returns:
-        Initialized Assistant agent instance
-    """
+    """Initialize and return a voice agent instance."""
+    if not room_name:
+        raise ValueError("room_name must not be empty")
+
+    await connect_to_room(room_name, participant_name)
+
     return Assistant(
         call_id=call_id or room_name,
-        location_context=location_context,
+        location_context=location_context or context,
     )
 
 if __name__ == "__main__":
