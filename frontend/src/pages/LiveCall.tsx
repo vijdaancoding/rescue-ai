@@ -262,7 +262,20 @@ export default function LiveCall() {
       } catch { /* ignore */ }
     }
 
-    return () => { cleaned = true; dws.close() }
+    // Safety-net polling: /latest every 5s while the call is connected. Cheap
+    // and protects us if the WebSocket drops a broadcast.
+    const pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/analysis/${callId}/latest`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+        if (cleaned || !res.ok) return
+        const data = await res.json()
+        if (data?.type === 'analysis_update') setAnalysis(data as AnalysisData)
+      } catch { /* ignore */ }
+    }, 5000)
+
+    return () => { cleaned = true; dws.close(); clearInterval(pollTimer) }
   }, [activeCall?.id, authToken])
 
   const handleStopListening = useCallback(() => {

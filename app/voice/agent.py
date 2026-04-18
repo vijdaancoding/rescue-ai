@@ -22,9 +22,12 @@ AGENT_NAME = "rescue-operator"
 # URL of the FastAPI backend — agent posts transcripts here for analysis.
 _BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
-# Per-call analysis throttle settings
-_MIN_WORDS = 20
-_COOLDOWN_SEC = 8
+# Per-call analysis throttle settings. Tuned for near-per-sentence updates
+# on the dashboard: the first user turn always fires immediately, then subsequent
+# analyses need a modest transcript floor + cooldown so we don't burn Gemini
+# quota on every half-word.
+_MIN_WORDS = 10
+_COOLDOWN_SEC = 4
 
 # ── Pre-synthesized greeting cache ─────────────────────────────────────────────
 # Synthesized once at the first call handled by this worker process.

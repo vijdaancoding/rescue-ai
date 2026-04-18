@@ -95,16 +95,28 @@ export default function TestCall() {
         if (fresh.length) setTranscriptLines(prev => [...prev, ...fresh])
       })
 
-      // If the agent / caller leaves the room (e.g. caller closed Test Caller
-      // tab), end the browser-side call immediately so the backend flips the
-      // DB row to FalseAlarm. Otherwise the /ws/call WebSocket would idle
-      // forever and the Dashboard would show a zombie "Active" call.
-      room.on(RoomEvent.Disconnected, () => {
+      // When the caller or agent leaves the room, end the call immediately
+      // so the backend flips the DB row to FalseAlarm. The observer's OWN
+      // Room stays connected after peers leave (it's just silent), so we
+      // have to listen for ParticipantDisconnected and check remaining size
+      // — not Room.Disconnected, which only fires if we ourselves leave.
+      const endNow = () => {
         if (isCleanup) return
         try { wsRef.current?.send('end_call') } catch { /* already closed */ }
         wsRef.current?.close()
         setConnectionStatus('ended')
+      }
+      room.on(RoomEvent.ParticipantDisconnected, () => {
+        if (isCleanup) return
+        // Small delay — multiple disconnects can fire in sequence (caller
+        // leaves then agent exits a moment later). Once no peers remain
+        // there's nothing left to listen to.
+        setTimeout(() => {
+          if (isCleanup) return
+          if (roomRef.current?.remoteParticipants.size === 0) endNow()
+        }, 1500)
       })
+      room.on(RoomEvent.Disconnected, endNow)
 
       try {
         await room.connect(livekit_url, token)
@@ -140,6 +152,19 @@ export default function TestCall() {
   useEffect(() => {
     if (!callId) return
     let isCleanup = false
+
+    // Seed analysis state from REST so we show scores that ran before our WS
+    // connected (fire-and-forget broadcasts aren't replayed).
+    void (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/analysis/${callId}/latest`)
+        if (!isCleanup && res.ok) {
+          const data = await res.json()
+          if (data?.type === 'analysis_update') setAnalysis(data as AnalysisData)
+        }
+      } catch { /* 404 is fine — no analysis yet */ }
+    })()
+
     const dws = new WebSocket(`${API_WS_URL}/ws/dashboard`)
     dashboardWsRef.current = dws
 
@@ -155,6 +180,23 @@ export default function TestCall() {
 
     return () => { isCleanup = true; dws.close() }
   }, [callId])
+
+  // Poll /latest every 5s while the call is connected as a safety net for
+  // any missed WS broadcasts. Cheap — just hits a DB SELECT on our backend.
+  useEffect(() => {
+    if (!callId || connectionStatus !== 'connected') return
+    let isCleanup = false
+    const t = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/analysis/${callId}/latest`)
+        if (!isCleanup && res.ok) {
+          const data = await res.json()
+          if (data?.type === 'analysis_update') setAnalysis(data as AnalysisData)
+        }
+      } catch { /* ignore */ }
+    }, 5000)
+    return () => { isCleanup = true; clearInterval(t) }
+  }, [callId, connectionStatus])
 
   const handleEndCall = useCallback(() => {
     setConnectionStatus('ended')
