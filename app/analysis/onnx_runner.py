@@ -3,21 +3,29 @@ ONNX inference for spam detection.
 Model: XLM-RoBERTa (binary sequence classification)
 Labels: 0 → not_spam, 1 → spam
 
-Loaded once at FastAPI startup via load() to avoid per-call cold start.
+Model weights live at `behram7cr/spam_detection` on HuggingFace Hub (public).
+On startup `load()` pulls the snapshot to the container's HF cache, then sets up
+the ONNX Runtime session for fast local CPU inference — no per-request network
+round-trip, no Railway volume needed. First cold start adds ~60–90s for the
+~1.1 GB download; subsequent calls within the same container reuse the cache.
+
 Inference runs in a ThreadPoolExecutor so CPU work never blocks the event loop.
 """
 import asyncio
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
+from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path(__file__).parent.parent.parent / "models" / "onnx_model"
+# HF repo override via env if you ever fork or fine-tune a new version.
+HF_REPO_ID = os.getenv("SPAM_MODEL_REPO", "behram7cr/spam_detection")
 LABELS = {0: "not_spam", 1: "spam"}
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="onnx-spam")
@@ -27,23 +35,47 @@ _input_names: set[str] = set()
 
 
 def load() -> None:
-    """Load model and tokenizer into memory. Call once at application startup.
-    If the model files are not present (e.g. volume not yet populated), logs a
-    warning and continues — analysis will skip the ONNX step until the model
-    is available and the service is restarted."""
+    """Pull the ONNX model + tokenizer from HuggingFace Hub and set up the
+    ONNX Runtime session. Called once at FastAPI startup.
+
+    If the download fails (network flake, HF outage, repo renamed) we log and
+    continue — analysis will skip the ONNX step and return a safe default so
+    the voice pipeline keeps working. Rejoin on next restart once the cause
+    is resolved.
+    """
     global _session, _tokenizer, _input_names
-    model_file = MODEL_DIR / "model.onnx"
-    if not model_file.exists():
+    logger.info("Downloading spam detection model from HuggingFace: %s", HF_REPO_ID)
+    try:
+        local_dir = snapshot_download(
+            repo_id=HF_REPO_ID,
+            # Only pull the files inference actually needs — skips README/license.
+            allow_patterns=[
+                "model.onnx",
+                "config.json",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+            ],
+        )
+    except Exception as exc:
         logger.warning(
-            "ONNX model not found at %s — spam detection disabled. "
-            "Upload the model to the Railway volume and redeploy.",
-            MODEL_DIR,
+            "HF snapshot_download failed for %s: %s — spam detection disabled",
+            HF_REPO_ID, exc,
         )
         return
-    logger.info("Loading ONNX spam detection model from %s", MODEL_DIR)
-    _tokenizer = AutoTokenizer.from_pretrained(str(MODEL_DIR))
+
+    model_file = Path(local_dir) / "model.onnx"
+    if not model_file.exists():
+        logger.warning(
+            "Download succeeded but model.onnx missing in %s — spam detection disabled",
+            local_dir,
+        )
+        return
+
+    logger.info("Loading ONNX session from %s", local_dir)
+    _tokenizer = AutoTokenizer.from_pretrained(local_dir)
     _session = ort.InferenceSession(
-        str(MODEL_DIR / "model.onnx"),
+        str(model_file),
         providers=["CPUExecutionProvider"],
     )
     _input_names = {inp.name for inp in _session.get_inputs()}
