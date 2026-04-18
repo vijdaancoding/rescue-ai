@@ -35,7 +35,7 @@ class CallSession(Base):
     caller_state = Column(String, nullable=True)
     caller_country = Column(String, nullable=True)
     caller_zip = Column(String, nullable=True)
-
+    room_name = Column(String, nullable=True)
 
 class AiMetadata(Base):
     """
@@ -83,12 +83,29 @@ class Dispatch(Base):
     ai_recommended = Column(Boolean, default=False)
 
 
+class UserSettings(Base):
+    """Per-user preferences stored server-side."""
+    __tablename__ = "user_settings"
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    display_name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    sound_alerts = Column(Boolean, default=True)
+    email_notifications = Column(Boolean, default=True)
+    emergency_alerts = Column(Boolean, default=True)
+    language = Column(String, default="english")
+    volume = Column(BigInteger, default=75)
+    microphone = Column(Boolean, default=True)
+    two_factor_auth = Column(Boolean, default=False)
+    session_timeout = Column(BigInteger, default=30)
+    updated_at = Column(DateTime(timezone=True), default=get_utc_now, onupdate=get_utc_now)
+
+
 class AuditLog(Base):
     """Audit trail for call-related actions."""
     __tablename__ = "audit_logs"
     log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     created_at = Column(DateTime(timezone=True), default=get_utc_now)
-    action_type = Column(String, nullable=True, unique=True)
+    action_type = Column(String, nullable=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     description = Column(Text, nullable=True)
     call_id = Column(UUID(as_uuid=True), ForeignKey("call_sessions.id"))

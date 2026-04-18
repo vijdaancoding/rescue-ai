@@ -10,10 +10,9 @@ from typing import AsyncGenerator
 
 import httpx
 from livekit import agents, rtc
-from livekit.agents import AgentSession, Agent, WorkerType, inference
+from livekit.agents import AgentSession, Agent, WorkerType, inference, TurnHandlingOptions
 from livekit.agents.voice.room_io import RoomOptions
-from livekit.plugins import upliftai, silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.plugins import upliftai, silero, groq
 
 logger = logging.getLogger(__name__)
 
@@ -47,21 +46,7 @@ async def _preload_greeting(tts_instance: upliftai.TTS) -> None:
         logger.info("Greeting pre-synthesized: %d frames cached", len(frames))
 
 
-class Assistant(Agent):
-    """
-    Rescue helpline operator (Urdu-speaking, female).
-
-    Per-turn transcript accumulation triggers fire-and-forget analysis via
-    the FastAPI analysis pipeline (ONNX + Gemini in parallel).
-    """
-
-    def __init__(self, call_id: str) -> None:
-        self._call_id = call_id
-        self._transcript_parts: list[str] = []
-        self._last_analysis_at: float = 0.0
-        self._first_user_turn_analyzed: bool = False
-
-        super().__init__(instructions="""
+_BASE_INSTRUCTIONS = """
 # ریسکیو ہیلپ لائن آپریٹر
 
 ## بنیادی شناخت
@@ -82,7 +67,7 @@ class Assistant(Agent):
 - ایک وقت میں ایک ہی سوال کریں
 - صورتحال: کیا ہوا؟ کہاں ہوا؟ کتنے لوگ متاثر ہیں؟
 - ایمرجنسی کی قسم معلوم کریں: آگ، حادثہ، طبی ضرورت، امن و امان
-- پتہ اور قریبی نشان دہی لازمی لیں
+{location_instructions}
 - متاثرہ شخص کی حالت پوچھیں
 
 ## ایمرجنسی کی اقسام
@@ -95,7 +80,70 @@ class Assistant(Agent):
 - بغیر علامات اور بُلٹ پوائنٹس کے بولیں
 - دو سے تین جملوں میں بات ختم کریں
 - گھبراہٹ میں ہو تو تسلی دیں: "فکر نہ کریں، مدد آ رہی ہے"
-        """)
+"""
+
+_LOCATION_UNKNOWN = "- پتہ اور قریبی نشان دہی لازمی لیں"
+
+_LOCATION_KNOWN_TEMPLATE = """
+## مقام کی معلومات (GPS سے پہلے سے دستیاب)
+کالر کا مقام پہلے سے معلوم ہے: {location_label}
+آپ کو مقام دوبارہ نہیں پوچھنا چاہیے۔ صرف مختصر تصدیق کریں:
+"آپ {location_label} میں ہیں، کیا یہ درست ہے؟"
+اگر کالر نے تصدیق کی تو فوری ایمرجنسی کی تفصیل پوچھیں۔
+اگر کالر نے غلط بتایا تو صحیح پتہ لیں۔
+""".strip()
+
+
+def _build_instructions(location_context: dict | None) -> str:
+    if location_context and location_context.get("has_location"):
+        city = location_context.get("city")
+        state = location_context.get("state")
+        lat = location_context.get("lat")
+        lng = location_context.get("lng")
+
+        if city and state:
+            label = f"{city}، {state}"
+        elif city:
+            label = city
+        elif lat is not None and lng is not None:
+            label = f"{lat:.4f}, {lng:.4f}"
+        else:
+            label = None
+
+        if label:
+            location_block = _LOCATION_KNOWN_TEMPLATE.format(location_label=label)
+            return _BASE_INSTRUCTIONS.format(location_instructions=location_block)
+
+    return _BASE_INSTRUCTIONS.format(location_instructions=_LOCATION_UNKNOWN)
+
+
+async def _fetch_call_context(room_name: str) -> dict:
+    """Fetch pre-known call context (location) from the backend at agent startup."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f"{_BACKEND_URL}/calls/context/{room_name}")
+            if r.status_code == 200:
+                return r.json()
+    except Exception as exc:
+        logger.warning("Could not fetch call context for room %s: %s", room_name, exc)
+    return {"has_location": False}
+
+
+class Assistant(Agent):
+    """
+    Rescue helpline operator (Urdu-speaking, female).
+
+    Per-turn transcript accumulation triggers fire-and-forget analysis via
+    the FastAPI analysis pipeline (ONNX + Gemini in parallel).
+    """
+
+    def __init__(self, call_id: str, location_context: dict | None = None) -> None:
+        self._call_id = call_id
+        self._transcript_parts: list[str] = []
+        self._last_analysis_at: float = 0.0
+        self._first_user_turn_analyzed: bool = False
+
+        super().__init__(instructions=_build_instructions(location_context))
 
     # ── Transcript hook ────────────────────────────────────────────────────────
 
@@ -173,6 +221,10 @@ async def entrypoint(ctx: agents.JobContext):
 
     await ctx.connect()
 
+    # Fetch pre-known location context for this room (set by GPS before the call).
+    # Falls back gracefully if the endpoint is unreachable or returns nothing.
+    location_context = await _fetch_call_context(ctx.room.name)
+
     tts = upliftai.TTS(
         voice_id="v_meklc281",
         output_format="MP3_22050_32",
@@ -182,42 +234,33 @@ async def entrypoint(ctx: agents.JobContext):
     # calls handled by this worker — eliminates TTS latency for the opening phrase.
     await _preload_greeting(tts)
 
+    # v1.5 consolidated all turn/interruption kwargs into TurnHandlingOptions.
+    # Old flat kwargs still work but emit deprecation warnings and will be
+    # removed in v2.0. preemptive_generation is now default-True in v1.5.
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3-general:hi"),
-        llm=inference.LLM(model="google/gemini-3-flash"),
+        stt=groq.STT(model="whisper-large-v3-turbo", language="ur"),
+        llm=inference.LLM(model="google/gemini-2.5-flash"),
         tts=tts,
         vad=silero.VAD.load(),
-
-        # ── Latency optimisations (v1.4.1 flat API) ───────────────────────────
-
-        # Context-aware turn detection: Qwen2.5-0.5B model reads the transcript
-        # and predicts whether the caller has finished their thought, rather than
-        # waiting for silence alone. Hindi weights (99.4% TP) work for Urdu.
-        turn_detection=MultilingualModel(),
-
-        # Start LLM generation before VAD fires end-of-speech.
-        # Requires turn_detection model to be effective; default is False in v1.4.1.
-        preemptive_generation=True,
-
-        # Endpointing: how long to wait after speech ends before committing turn.
-        # Tightened from defaults (0.5s / 3.0s) for emergency call context.
-        min_endpointing_delay=0.3,   # respond as soon as model is confident
-        max_endpointing_delay=1.5,   # never wait longer than 1.5s (emergency)
-
-        # Interruption filtering: require at least 2 words and 400 ms of speech
-        # to count as a real interruption — ignores brief background noise.
-        min_interruption_duration=0.4,
-        min_interruption_words=2,
-
-        # Resume agent speech if an interruption turns out to be false
-        # (e.g. noise spike with no actual transcription).
-        resume_false_interruption=True,
-        false_interruption_timeout=1.5,
+        turn_handling=TurnHandlingOptions(
+            endpointing={
+                "mode": "dynamic",
+                "min_delay": 0.3,
+                "max_delay": 1.5,
+            },
+            interruption={
+                "mode": "vad",
+                "min_duration": 0.4,
+                "min_words": 2,
+                "resume_false_interruption": True,
+                "false_interruption_timeout": 1.5,
+            },
+        ),
     )
 
     await session.start(
         room=ctx.room,
-        agent=Assistant(call_id=call_id),
+        agent=Assistant(call_id=call_id, location_context=location_context),
         room_options=RoomOptions(participant_identity=caller_identity),
     )
 
@@ -233,6 +276,35 @@ async def entrypoint(ctx: agents.JobContext):
         allow_interruptions=False,
     )
 
+
+
+
+async def connect_to_room(room_name: str, participant_name: str) -> rtc.Room:
+    """Connect to a LiveKit room and return the room object."""
+    room = rtc.Room()
+    token = os.getenv("LIVEKIT_TOKEN", "")
+    url = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
+    await room.connect(url, token)
+    return room
+
+
+async def init_voice_agent(
+    room_name: str,
+    participant_name: str = "ai_agent",
+    call_id: str | None = None,
+    location_context: dict | None = None,
+    context: dict | None = None,
+) -> Assistant:
+    """Initialize and return a voice agent instance."""
+    if not room_name:
+        raise ValueError("room_name must not be empty")
+
+    await connect_to_room(room_name, participant_name)
+
+    return Assistant(
+        call_id=call_id or room_name,
+        location_context=location_context or context,
+    )
 
 if __name__ == "__main__":
     agent_port = int(os.getenv("AGENT_PORT", "8082"))

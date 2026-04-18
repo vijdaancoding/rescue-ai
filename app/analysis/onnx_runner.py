@@ -27,8 +27,19 @@ _input_names: set[str] = set()
 
 
 def load() -> None:
-    """Load model and tokenizer into memory. Call once at application startup."""
+    """Load model and tokenizer into memory. Call once at application startup.
+    If the model files are not present (e.g. volume not yet populated), logs a
+    warning and continues — analysis will skip the ONNX step until the model
+    is available and the service is restarted."""
     global _session, _tokenizer, _input_names
+    model_file = MODEL_DIR / "model.onnx"
+    if not model_file.exists():
+        logger.warning(
+            "ONNX model not found at %s — spam detection disabled. "
+            "Upload the model to the Railway volume and redeploy.",
+            MODEL_DIR,
+        )
+        return
     logger.info("Loading ONNX spam detection model from %s", MODEL_DIR)
     _tokenizer = AutoTokenizer.from_pretrained(str(MODEL_DIR))
     _session = ort.InferenceSession(

@@ -1,71 +1,53 @@
-from datetime import datetime, timezone
+"""
+Twilio webhooks: inbound voice (TwiML to dial LiveKit SIP) + status callbacks.
+"""
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Response
-from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
-from app.core.config import settings
-from app.db.models import CallSession
+from app.api.deps import get_call_repo
+from app.repositories.calls import CallRepository
+from app.services import twilio as twilio_service
 
 router = APIRouter(prefix="/twilio", tags=["Twilio"])
 
 
 @router.post("/voice")
-async def twilio_voice_webhook(
-    db: Session = Depends(get_db),
+def twilio_voice_webhook(
     From: str = Form(default=""),
     CallSid: str = Form(default=""),
     FromCity: str = Form(default=""),
     FromState: str = Form(default=""),
     FromZip: str = Form(default=""),
     FromCountry: str = Form(default=""),
-):
+    calls: CallRepository = Depends(get_call_repo),
+) -> Response:
     """
-    Twilio hits this when someone calls our number.
-    We record the caller phone + geo, then forward the audio to LiveKit
-    via SIP. LiveKit's inbound trunk + dispatch rule create the room
-    and auto-dispatch the rescue-operator agent.
+    Handle Twilio's inbound voice webhook.
+
+    If the caller first submitted GPS via the PWA we upgrade that pending row
+    in-place; otherwise we record a new session from Twilio's cell-tower data.
     """
-    call = CallSession(
-        caller_hash=f"twilio-{CallSid}",
-        status="Active",
-        caller_phone=From or None,
-        caller_city=FromCity or None,
-        caller_state=FromState or None,
-        caller_country=FromCountry or None,
-        caller_zip=FromZip or None,
+    twilio_service.upsert_incoming_call(
+        from_phone=From,
+        call_sid=CallSid,
+        city=FromCity,
+        state=FromState,
+        country=FromCountry,
+        zip_code=FromZip,
+        calls=calls,
     )
-    db.add(call)
-    db.commit()
-
-    sip_host = settings.LIVEKIT_SIP_URI.replace("sip:", "").strip()
-    sip_target = f"sip:{settings.TWILIO_PHONE_NUMBER}@{sip_host};transport=tcp"
-
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Dial answerOnBridge="true">
-        <Sip username="{settings.LIVEKIT_SIP_USERNAME}" password="{settings.LIVEKIT_SIP_PASSWORD}">{sip_target}</Sip>
-    </Dial>
-</Response>"""
-
-    return Response(content=twiml, media_type="application/xml")
+    return Response(content=twilio_service.dial_sip_twiml(), media_type="application/xml")
 
 
 @router.post("/status")
-async def twilio_call_status(
-    db: Session = Depends(get_db),
+def twilio_call_status(
     CallSid: str = Form(default=""),
     CallStatus: str = Form(default=""),
-):
-    if CallStatus in ("completed", "failed", "busy", "no-answer", "canceled"):
-        call = (
-            db.query(CallSession)
-            .filter(CallSession.caller_hash == f"twilio-{CallSid}")
-            .first()
-        )
-        if call:
-            call.end_time = datetime.now(timezone.utc)
-            if call.status == "Active":
-                call.status = "FalseAlarm"
-            db.commit()
+    calls: CallRepository = Depends(get_call_repo),
+) -> Response:
+    """React to Twilio terminal statuses (completed, failed, busy, etc.)."""
+    twilio_service.handle_status_update(
+        call_sid=CallSid, call_status=CallStatus, calls=calls
+    )
     return Response(status_code=204)
