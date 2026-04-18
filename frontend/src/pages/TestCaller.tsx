@@ -1,64 +1,79 @@
 import { useState, useEffect, useRef } from 'react'
 import { Room, RoomEvent, Track, createLocalAudioTrack } from 'livekit-client'
-import { Mic, MicOff, PhoneOff } from 'lucide-react'
+import { Mic, MicOff, PhoneOff, Phone, AlertTriangle } from 'lucide-react'
 
-type Status = 'connecting' | 'connected' | 'muted' | 'error' | 'ended'
+type Status = 'idle' | 'connecting' | 'connected' | 'muted' | 'error' | 'ended'
 
 export default function TestCaller() {
-  const [status, setStatus] = useState<Status>('connecting')
+  const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState('')
+  const [missingParams, setMissingParams] = useState(false)
   const roomRef = useRef<Room | null>(null)
+  const attachedElementsRef = useRef<HTMLAudioElement[]>([])
 
+  // Early param check — don't start until we know the URL is usable.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const token = params.get('token')
     const livekit_url = params.get('livekit_url')
-
     if (!token || !livekit_url) {
-      setError('Missing token or livekit_url in URL params. Open this page from the Live Call dashboard.')
+      setMissingParams(true)
+      setError('Missing token or livekit_url in URL. Open this page from the Live Call dashboard.')
       setStatus('error')
-      return
     }
+  }, [])
 
-    let isCleanup = false
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      attachedElementsRef.current.forEach(el => { el.pause(); el.remove() })
+      roomRef.current?.disconnect()
+    }
+  }, [])
+
+  // The meaningful work runs ONLY after a user gesture (Start Call button).
+  // This guarantees the browser lets us play the agent's audio — without a user
+  // gesture, <audio>.play() is silently blocked by autoplay policy and you get
+  // a connected call with no agent voice.
+  const handleStart = async () => {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token')!
+    const livekit_url = params.get('livekit_url')!
+
+    setStatus('connecting')
+    setError('')
+
     const room = new Room()
     roomRef.current = room
 
-    // Play any audio tracks published by remote participants (i.e. the agent's TTS)
-    const attachedElements: HTMLAudioElement[] = []
+    // Attach any audio tracks published by remote participants (the agent's TTS).
     room.on(RoomEvent.TrackSubscribed, (track) => {
-      if (track.kind === Track.Kind.Audio) {
-        const el = track.attach() as HTMLAudioElement
-        el.style.display = 'none'
-        document.body.appendChild(el)
-        el.play().catch(() => {})
-        attachedElements.push(el)
-      }
+      if (track.kind !== Track.Kind.Audio) return
+      const el = track.attach() as HTMLAudioElement
+      el.style.display = 'none'
+      document.body.appendChild(el)
+      attachedElementsRef.current.push(el)
+      el.play().catch(err => {
+        // Shouldn't happen now — user just clicked Start — but log clearly if it does.
+        console.error('Audio play blocked:', err)
+        setError('Audio playback blocked by browser. Try clicking End + Start again.')
+      })
     })
 
-    ;(async () => {
-      try {
-        await room.connect(livekit_url, token)
-        if (isCleanup) return
-
-        const audioTrack = await createLocalAudioTrack()
-        await room.localParticipant.publishTrack(audioTrack)
-
-        setStatus('connected')
-      } catch (e) {
-        if (!isCleanup) {
-          setError(String(e))
-          setStatus('error')
-        }
-      }
-    })()
-
-    return () => {
-      isCleanup = true
-      attachedElements.forEach(el => { el.pause(); el.remove() })
-      room.disconnect()
+    try {
+      // Grab the mic FIRST so permission prompt resolves before we pull in the
+      // agent's audio. Once granted, the page is fully gesture-authorized for
+      // both input and output.
+      const audioTrack = await createLocalAudioTrack()
+      await room.connect(livekit_url, token)
+      await room.localParticipant.publishTrack(audioTrack)
+      setStatus('connected')
+    } catch (e) {
+      console.error('TestCaller connect failed:', e)
+      setError(String((e as Error)?.message || e))
+      setStatus('error')
     }
-  }, [])
+  }
 
   const handleMute = () => {
     const room = roomRef.current
@@ -73,7 +88,10 @@ export default function TestCaller() {
   }
 
   const handleEnd = () => {
+    attachedElementsRef.current.forEach(el => { el.pause(); el.remove() })
+    attachedElementsRef.current = []
     roomRef.current?.disconnect()
+    roomRef.current = null
     setStatus('ended')
   }
 
@@ -86,26 +104,28 @@ export default function TestCaller() {
         <p className="text-sm text-gray-400 mb-8">Simulates a phone caller for testing</p>
 
         {/* Status indicator */}
-        <div className="flex items-center justify-center gap-2 mb-8">
+        <div className="flex items-center justify-center gap-2 mb-6">
           <div className={`w-3 h-3 rounded-full ${
             status === 'connected' ? 'bg-green-400 animate-pulse' :
             status === 'muted' ? 'bg-yellow-400' :
             status === 'connecting' ? 'bg-blue-400 animate-pulse' :
             status === 'ended' ? 'bg-gray-500' :
+            status === 'idle' ? 'bg-gray-400' :
             'bg-red-500'
           }`} />
           <span className="text-sm font-medium text-gray-300">
+            {status === 'idle'       && 'Ready'}
             {status === 'connecting' && 'Connecting...'}
-            {status === 'connected' && 'Live — agent can hear you'}
-            {status === 'muted' && 'Muted'}
-            {status === 'ended' && 'Call ended'}
-            {status === 'error' && 'Connection error'}
+            {status === 'connected'  && 'Live — agent can hear you'}
+            {status === 'muted'      && 'Muted'}
+            {status === 'ended'      && 'Call ended'}
+            {status === 'error'      && 'Connection error'}
           </span>
         </div>
 
         {/* Mic visualizer ring */}
         {isActive && (
-          <div className={`w-24 h-24 rounded-full mx-auto mb-8 flex items-center justify-center border-4 ${
+          <div className={`w-24 h-24 rounded-full mx-auto mb-6 flex items-center justify-center border-4 ${
             status === 'connected'
               ? 'border-green-400 bg-green-400/10 animate-pulse'
               : 'border-yellow-400 bg-yellow-400/10'
@@ -118,7 +138,27 @@ export default function TestCaller() {
         )}
 
         {error && (
-          <p className="text-sm text-red-400 mb-6 bg-red-900/30 rounded-lg p-3">{error}</p>
+          <div className="mb-6 flex items-start gap-2 bg-red-900/30 rounded-lg p-3 text-left">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        )}
+
+        {/* Start button — visible only until we're live */}
+        {(status === 'idle' || status === 'ended' || status === 'error') && !missingParams && (
+          <>
+            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+              Click below to start the test call. Your browser will ask for mic
+              permission — the agent will greet you in Urdu once connected.
+            </p>
+            <button
+              onClick={handleStart}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm bg-green-600 hover:bg-green-500 text-white transition-colors"
+            >
+              <Phone className="w-4 h-4" />
+              {status === 'ended' || status === 'error' ? 'Start Again' : 'Start Test Call'}
+            </button>
+          </>
         )}
 
         {isActive && (
@@ -139,10 +179,6 @@ export default function TestCaller() {
               <PhoneOff className="w-4 h-4" /> End
             </button>
           </div>
-        )}
-
-        {status === 'ended' && (
-          <p className="text-gray-500 text-sm mt-4">You can close this tab.</p>
         )}
 
         <p className="text-xs text-gray-600 mt-8">

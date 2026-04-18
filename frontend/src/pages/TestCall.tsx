@@ -2,15 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Room, RoomEvent, type TranscriptionSegment } from 'livekit-client'
 import Layout from '../components/Layout'
-import { AlertTriangle, Phone, Activity, Mic, PhoneOff, ShieldAlert, Zap, Siren, Bell, Loader2, PhoneOff as PhoneOffIcon, FlaskConical } from 'lucide-react'
-import { useAuth } from '../context/AuthContext'
-import type { AnalysisData, CallSummary } from '../types'
+import { AlertTriangle, Activity, Mic, PhoneOff, ShieldAlert, Zap, Siren, Bell, FlaskConical } from 'lucide-react'
+import type { AnalysisData } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const API_WS_URL = API_URL.replace(/^http/, 'ws')
-const POLL_INTERVAL_MS = 5000
 
-type Status = 'loading' | 'waiting' | 'connecting' | 'connected' | 'ended' | 'error'
+type ConnectionStatus = 'connecting' | 'connected' | 'error' | 'ended'
 
 const URGENCY_RING: Record<string, string> = {
   critical: 'bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/40',
@@ -36,175 +34,98 @@ const DISPATCH_LABEL: Record<string, string> = {
   police: 'Police', ambulance: 'Ambulance', firefighters: 'Firefighters',
 }
 
-export default function LiveCall() {
+export default function TestCall() {
   const navigate = useNavigate()
-  const { token: authToken } = useAuth()
-
-  const [status, setStatus] = useState<Status>('loading')
-  const [errorMsg, setErrorMsg] = useState('')
-  const [activeCall, setActiveCall] = useState<CallSummary | null>(null)
   const [transcriptLines, setTranscriptLines] = useState<string[]>([])
   const [callDuration, setCallDuration] = useState(0)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
+  const [callId, setCallId] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null)
+  const [callerTestUrl, setCallerTestUrl] = useState<string | null>(null)
 
-  const roomRef = useRef<Room | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
   const dashboardWsRef = useRef<WebSocket | null>(null)
-  const joinedCallIdRef = useRef<string | null>(null)
+  const roomRef = useRef<Room | null>(null)
   const transcriptEndRef = useRef<HTMLDivElement | null>(null)
-  // Dedupe TranscriptionReceived — LiveKit re-emits the same final segment on
-  // minor updates, which otherwise appears as duplicate lines in the UI.
-  const seenSegmentIdsRef = useRef<Set<string>>(new Set())
 
-  // Auto-scroll transcript
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [transcriptLines])
 
-  // Compute live duration from call.start_time (while connected).
-  // Backend sometimes serializes naive datetimes without 'Z' — JS then parses them
-  // as local time, which in PKT (+05:00) produces a spurious 5-hour offset.
-  // Defensive fix: if the string has no TZ suffix, append 'Z' so it's read as UTC.
   useEffect(() => {
-    if (status !== 'connected' || !activeCall?.start_time) return
-    const raw = activeCall.start_time
-    const hasTz = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(raw)
-    const utcIso = hasTz ? raw : raw + 'Z'
-    const startMs = new Date(utcIso).getTime()
-    const tick = () => setCallDuration(Math.max(0, Math.floor((Date.now() - startMs) / 1000)))
-    tick()
-    const timer = setInterval(tick, 1000)
+    const timer = setInterval(() => setCallDuration(prev => prev + 1), 1000)
     return () => clearInterval(timer)
-  }, [status, activeCall])
+  }, [])
 
-  // Main effect: poll for active call, then join room when one is found
   useEffect(() => {
-    if (!authToken) {
-      setStatus('error')
-      setErrorMsg('Not signed in.')
-      return
-    }
+    let isCleanup = false
 
-    let cleaned = false
-    let pollTimer: ReturnType<typeof setInterval> | null = null
+    const openWebSocket = (lat?: number, lng?: number) => {
+      const params = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : ''
+      const ws = new WebSocket(`${API_WS_URL}/ws/call${params}`)
+      wsRef.current = ws
 
-    const joinCall = async (call: CallSummary): Promise<boolean> => {
-      // Already joined this call? skip.
-      if (joinedCallIdRef.current === call.id) return true
+      ws.onopen = () => setConnectionStatus('connecting')
 
-      setStatus('connecting')
-      setActiveCall(call)
-      setTranscriptLines([])
-      setAnalysis(null)
-      seenSegmentIdsRef.current = new Set()
+    ws.onmessage = async (event) => {
+      if (isCleanup) return
+      let payload: { token: string; caller_token: string; room_name: string; livekit_url: string; call_id: string }
+      try { payload = JSON.parse(event.data) } catch { return }
+
+      const { token, caller_token, room_name, livekit_url, call_id } = payload
+      setCallId(call_id)
+
+      // Build the test caller URL so a second tab can simulate the caller
+      const testParams = new URLSearchParams({ token: caller_token, livekit_url, room_name })
+      setCallerTestUrl(`/test-caller?${testParams.toString()}`)
+
+      const room = new Room()
+      roomRef.current = room
+
+      room.on(RoomEvent.TranscriptionReceived, (segments: TranscriptionSegment[]) => {
+        const finalTexts = segments.filter(s => s.final).map(s => s.text).filter(Boolean)
+        if (finalTexts.length > 0) setTranscriptLines(prev => [...prev, ...finalTexts])
+      })
 
       try {
-        const resp = await fetch(`${API_URL}/calls/${call.id}/listener-token`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        })
-        if (!resp.ok) {
-          if (cleaned) return false
-          setStatus('error')
-          setErrorMsg(
-            resp.status === 400
-              ? 'Call has no active LiveKit room yet — agent may still be joining.'
-              : `Backend returned ${resp.status} fetching listener token`,
-          )
-          return false
-        }
-        const { token: lkToken, livekit_url } = await resp.json()
-
-        if (cleaned) return false
-
-        const room = new Room()
-        roomRef.current = room
-
-        room.on(RoomEvent.TranscriptionReceived, (segments: TranscriptionSegment[]) => {
-          const fresh: string[] = []
-          for (const seg of segments) {
-            if (!seg.final || !seg.text?.trim()) continue
-            if (seenSegmentIdsRef.current.has(seg.id)) continue
-            seenSegmentIdsRef.current.add(seg.id)
-            fresh.push(seg.text)
-          }
-          if (fresh.length) setTranscriptLines(prev => [...prev, ...fresh])
-        })
-
-        room.on(RoomEvent.Disconnected, () => {
-          if (!cleaned) {
-            setStatus('ended')
-            joinedCallIdRef.current = null
-          }
-        })
-
-        await room.connect(livekit_url, lkToken)
-        if (cleaned) { room.disconnect(); return false }
-
-        joinedCallIdRef.current = call.id
-        setStatus('connected')
-        return true
-      } catch (e) {
-        if (!cleaned) {
-          setStatus('error')
-          setErrorMsg('Failed to connect to LiveKit room.')
-        }
-        return false
-      }
-    }
-
-    const pollForActive = async () => {
-      try {
-        const res = await fetch(`${API_URL}/calls/?status=Active&limit=1`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        })
-        if (!res.ok) {
-          if (!cleaned) {
-            setStatus('error')
-            setErrorMsg(`Backend returned ${res.status} listing calls`)
-          }
-          return
-        }
-        const calls: CallSummary[] = await res.json()
-        if (cleaned) return
-
-        if (calls.length === 0) {
-          // Only show 'waiting' if we're not already connected to something
-          if (joinedCallIdRef.current === null) setStatus('waiting')
-          return
-        }
-
-        await joinCall(calls[0])
+        await room.connect(livekit_url, token)
+        setConnectionStatus('connected')
       } catch {
-        if (!cleaned) {
-          setStatus('error')
-          setErrorMsg('Network error reaching backend.')
-        }
+        setConnectionStatus('error')
       }
     }
 
-    void pollForActive()
-    pollTimer = setInterval(() => {
-      // Only keep polling while we're NOT already connected to a call
-      if (joinedCallIdRef.current === null) void pollForActive()
-    }, POLL_INTERVAL_MS)
+      ws.onerror = () => setConnectionStatus('error')
+      ws.onclose = () => { if (!isCleanup) setConnectionStatus('ended') }
+    }
+
+    // Request GPS before connecting — agent uses it to skip asking for location.
+    // If denied or unavailable, fall through and open the WebSocket without coords.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { if (!isCleanup) openWebSocket(pos.coords.latitude, pos.coords.longitude) },
+        ()      => { if (!isCleanup) openWebSocket() },
+        { timeout: 5000, maximumAge: 60000 },
+      )
+    } else {
+      openWebSocket()
+    }
 
     return () => {
-      cleaned = true
-      if (pollTimer) clearInterval(pollTimer)
+      isCleanup = true
+      wsRef.current?.close()
       roomRef.current?.disconnect()
-      joinedCallIdRef.current = null
     }
-  }, [authToken])
+  }, [])
 
-  // Dashboard WebSocket for AI analysis updates (filtered by current callId)
   useEffect(() => {
-    const callId = activeCall?.id
-    if (!callId || status !== 'connected') return
-    let cleaned = false
+    if (!callId) return
+    let isCleanup = false
     const dws = new WebSocket(`${API_WS_URL}/ws/dashboard`)
     dashboardWsRef.current = dws
 
     dws.onmessage = (event) => {
-      if (cleaned) return
+      if (isCleanup) return
       try {
         const data = JSON.parse(event.data)
         if (data.type === 'analysis_update' && data.call_id === callId) {
@@ -213,40 +134,32 @@ export default function LiveCall() {
       } catch { /* ignore */ }
     }
 
-    return () => { cleaned = true; dws.close() }
-  }, [activeCall?.id, status])
+    return () => { isCleanup = true; dws.close() }
+  }, [callId])
 
-  const handleStopListening = useCallback(() => {
+  const handleEndCall = useCallback(() => {
+    setConnectionStatus('ended')
+    wsRef.current?.send('end_call')
+    wsRef.current?.close()
     roomRef.current?.disconnect()
-    roomRef.current = null
-    joinedCallIdRef.current = null
-    seenSegmentIdsRef.current = new Set()
-    setStatus('waiting')
-    setActiveCall(null)
-    setTranscriptLines([])
-    setAnalysis(null)
-    setCallDuration(0)
   }, [])
 
   const handleDispatch = useCallback(() => {
-    if (!activeCall?.id) return
-    navigate(`/dispatch/${activeCall.id}`, { state: { analysis } })
-  }, [activeCall, analysis, navigate])
+    if (!callId) return
+    navigate(`/dispatch/${callId}`, { state: { analysis } })
+  }, [callId, analysis, navigate])
 
   const handleFalseAlarm = useCallback(async () => {
-    if (activeCall?.id && authToken) {
-      await fetch(`${API_URL}/calls/${activeCall.id}/status`, {
+    if (callId) {
+      await fetch(`${API_URL}/calls/${callId}/status`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'FalseAlarm' }),
       }).catch(() => {})
     }
-    handleStopListening()
+    handleEndCall()
     navigate('/dashboard')
-  }, [activeCall, authToken, handleStopListening, navigate])
+  }, [callId, handleEndCall, navigate])
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -260,107 +173,33 @@ export default function LiveCall() {
   const isSpam = analysis?.spam_label === 'spam'
 
   const statusDot =
-    status === 'connected' ? 'bg-emerald-500' :
-    status === 'error' || status === 'ended' ? 'bg-red-500' :
+    connectionStatus === 'connected' ? 'bg-emerald-500' :
+    connectionStatus === 'error' || connectionStatus === 'ended' ? 'bg-red-500' :
     'bg-amber-400'
 
   const statusLabel =
-    status === 'loading'    ? 'Checking for calls…' :
-    status === 'waiting'    ? 'Waiting for incoming call…' :
-    status === 'connecting' ? 'Connecting to call…' :
-    status === 'connected'  ? 'Live' :
-    status === 'ended'      ? 'Call Ended' :
-                              'Error'
+    connectionStatus === 'connecting' ? 'Connecting...' :
+    connectionStatus === 'connected' ? 'Live' :
+    connectionStatus === 'ended' ? 'Call Ended' : 'Connection Error'
 
-  // Empty/waiting state — show centered card, skip the main call layout
-  if (status === 'loading' || status === 'waiting' || (status === 'error' && !activeCall)) {
-    return (
-      <Layout title="Active Call">
-        <div className="max-w-2xl mx-auto p-8 flex flex-col items-center justify-center min-h-[60vh]">
-          {status === 'loading' && (
-            <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-zinc-500">
-              <Loader2 className="w-8 h-8 animate-spin" />
-              <p className="text-sm">Looking for an active call…</p>
-            </div>
-          )}
-          {status === 'waiting' && (
-            <div className="flex flex-col items-center gap-4 text-center">
-              <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center">
-                <PhoneOffIcon className="w-7 h-7 text-slate-400 dark:text-zinc-600" />
-              </div>
-              <div>
-                <p className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
-                  No active calls right now
-                </p>
-                <p className="text-sm text-slate-500 dark:text-zinc-500 mt-1">
-                  This page will switch to a call automatically when one arrives.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 mt-3 text-xs text-slate-400 dark:text-zinc-600">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Polling every {POLL_INTERVAL_MS / 1000}s</span>
-              </div>
-
-              <div className="mt-6 pt-6 border-t border-slate-200 dark:border-zinc-800 w-full max-w-md">
-                <p className="text-xs text-slate-400 dark:text-zinc-600 mb-3">
-                  Twilio down or demoing the agent? Use the fallback:
-                </p>
-                <button
-                  onClick={() => navigate('/test-call')}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
-                    bg-white border border-slate-200 text-slate-700 hover:border-amber-300 hover:text-amber-700
-                    dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-amber-500/40 dark:hover:text-amber-400
-                    transition-colors"
-                >
-                  <FlaskConical className="w-4 h-4" />
-                  Start Browser Test Call
-                </button>
-              </div>
-            </div>
-          )}
-          {status === 'error' && (
-            <div className="w-full p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-semibold text-red-700 dark:text-red-400">Could not load active calls</p>
-                <p className="text-sm text-red-600/80 dark:text-red-400/80 mt-1">{errorMsg}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </Layout>
-    )
-  }
-
-  // Active call layout
   return (
-    <Layout title="Active Call">
+    <Layout title="Browser Test Call">
       <div className="space-y-4">
 
         {/* Call header bar */}
-        <div className="bg-red-50 border border-red-200 dark:bg-red-500/5 dark:border-red-500/25 rounded-xl p-4">
+        <div className="bg-amber-50 border border-amber-200 dark:bg-amber-500/5 dark:border-amber-500/25 rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-11 h-11 bg-red-100 dark:bg-red-500/15 rounded-xl flex items-center justify-center">
-                <Phone className="w-5 h-5 text-red-600 dark:text-red-400 animate-pulse" />
+              <div className="w-11 h-11 bg-amber-100 dark:bg-amber-500/15 rounded-xl flex items-center justify-center">
+                <FlaskConical className="w-5 h-5 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
-                <p className="text-base font-semibold text-slate-900 dark:text-zinc-100">Emergency Call in Progress</p>
+                <p className="text-base font-semibold text-slate-900 dark:text-zinc-100">Browser Test Call</p>
                 <div className="flex items-center gap-2 mt-0.5">
                   <div className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
                   <span className="text-xs text-slate-500 dark:text-zinc-500">{statusLabel}</span>
                   <span className="text-slate-300 dark:text-zinc-700">·</span>
-                  <span className="text-xs text-slate-500 dark:text-zinc-500 font-mono">
-                    {activeCall?.caller_phone || '—'}
-                  </span>
-                  {(activeCall?.caller_city || activeCall?.caller_country) && (
-                    <>
-                      <span className="text-slate-300 dark:text-zinc-700">·</span>
-                      <span className="text-xs text-slate-500 dark:text-zinc-500">
-                        {[activeCall.caller_city, activeCall.caller_country].filter(Boolean).join(', ')}
-                      </span>
-                    </>
-                  )}
+                  <span className="text-xs text-slate-500 dark:text-zinc-500">Browser mic — no Twilio</span>
                 </div>
               </div>
             </div>
@@ -369,15 +208,28 @@ export default function LiveCall() {
                 <p className="text-2xl font-bold tabular text-slate-900 dark:text-zinc-100">{formatTime(callDuration)}</p>
                 <p className="text-xs text-slate-400 dark:text-zinc-600">Duration</p>
               </div>
+              {callerTestUrl && (
+                <a
+                  href={callerTestUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-cyan-300 text-slate-600 hover:text-cyan-600
+                    dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:border-zinc-700 dark:hover:border-cyan-500/50 dark:text-zinc-300 dark:hover:text-cyan-400
+                    rounded-lg text-sm font-medium transition-all duration-200"
+                >
+                  <FlaskConical className="w-4 h-4" />
+                  Test Caller
+                </a>
+              )}
               <button
-                onClick={handleStopListening}
+                onClick={handleEndCall}
+                disabled={connectionStatus === 'ended'}
                 className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-red-300 text-slate-600 hover:text-red-600
                   dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:border-zinc-700 dark:hover:border-red-500/50 dark:text-zinc-300 dark:hover:text-red-400
-                  rounded-lg text-sm font-medium transition-all duration-200"
-                title="Stop listening (call on phone continues)"
+                  rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
               >
                 <PhoneOff className="w-4 h-4" />
-                Stop Listening
+                End Call
               </button>
             </div>
           </div>
@@ -417,13 +269,13 @@ export default function LiveCall() {
             </div>
 
             <div className="bg-slate-950 rounded-xl p-4 flex-1 min-h-[180px] max-h-[320px] overflow-y-auto font-mono text-sm leading-relaxed border border-slate-800">
-              {status === 'connecting' && (
+              {connectionStatus === 'connecting' && (
                 <p className="text-slate-600 text-xs">Connecting to call...</p>
               )}
-              {status === 'error' && (
-                <p className="text-red-400 text-xs">{errorMsg || 'Connection failed.'}</p>
+              {connectionStatus === 'error' && (
+                <p className="text-red-400 text-xs">Connection failed. Please try again.</p>
               )}
-              {(status === 'connected' || status === 'ended') && transcriptLines.length === 0 && (
+              {(connectionStatus === 'connected' || connectionStatus === 'ended') && transcriptLines.length === 0 && (
                 <p className="text-slate-700 text-xs">Waiting for speech<span className="animate-pulse">...</span></p>
               )}
               {transcriptLines.map((line, i) => (
@@ -570,7 +422,7 @@ export default function LiveCall() {
 
           <button
             onClick={handleDispatch}
-            disabled={!activeCall?.id}
+            disabled={!callId}
             className="flex-1 flex items-center justify-center gap-3 py-3 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white font-semibold text-base transition-all duration-200 active:scale-[0.99] shadow-lg shadow-red-500/20"
           >
             <Siren className="w-5 h-5" />

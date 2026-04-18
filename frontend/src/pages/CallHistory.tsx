@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
-import { Phone, PhoneOff, Clock, Calendar, Filter, Search, Shield, HeartPulse, Flame, Loader2, Download } from 'lucide-react'
+import { Phone, PhoneOff, Clock, Calendar, Filter, Search, Shield, HeartPulse, Flame, Loader2, Download, Ear } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import type { CallSummary } from '../types'
 
@@ -202,7 +203,7 @@ export default function CallHistory() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-zinc-800">
-                  {['Date & Time', 'Duration', 'Phone / Location', 'AI Signal', 'Dispatched', 'Status'].map(h => (
+                  {['Date & Time', 'Duration', 'Phone / Location', 'AI Signal', 'Dispatched', 'Status', ''].map(h => (
                     <th key={h} className="text-left py-3 px-5 text-[10px] font-semibold text-slate-400 dark:text-zinc-600 uppercase tracking-widest">
                       {h}
                     </th>
@@ -262,6 +263,18 @@ export default function CallHistory() {
                         <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[call.status ?? ''] ?? 'bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-500'}`}>
                           {call.status || '—'}
                         </span>
+                      </td>
+                      <td className="py-3.5 px-5">
+                        {call.status === 'Active' && (
+                          <Link
+                            to={`/listen/${call.id}`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-500/10 dark:hover:bg-red-500/20 dark:text-red-400 border border-red-200 dark:border-red-500/30 transition-colors"
+                            title="Listen live to this call"
+                          >
+                            <Ear className="w-3.5 h-3.5" />
+                            Listen
+                          </Link>
+                        )}
                       </td>
                     </tr>
                   )

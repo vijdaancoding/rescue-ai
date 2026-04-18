@@ -67,6 +67,8 @@ export interface CallSummary {
   caller_phone: string | null
   caller_city: string | null
   caller_country: string | null
+  lat: number | null              // precise GPS when available (from PWA)
+  lng: number | null
   spam_label: string | null       // "spam" | "not_spam" | null
   urgency_level: string | null    // "critical" | "high" | "medium" | "low" | null
   scam_probability: number | null // 0–100

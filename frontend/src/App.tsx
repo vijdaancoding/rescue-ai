@@ -11,6 +11,8 @@ import Settings from './pages/Settings'
 import TestCaller from './pages/TestCaller'
 import Dispatch from './pages/Dispatch'
 import Health from './pages/Health'
+import CallListener from './pages/CallListener'
+import TestCall from './pages/TestCall'
 
 function App() {
   return (
@@ -53,6 +55,16 @@ function App() {
             <Route path="/dispatch/:callId" element={
               <ProtectedRoute>
                 <Dispatch />
+              </ProtectedRoute>
+            } />
+            <Route path="/listen/:callId" element={
+              <ProtectedRoute>
+                <CallListener />
+              </ProtectedRoute>
+            } />
+            <Route path="/test-call" element={
+              <ProtectedRoute>
+                <TestCall />
               </ProtectedRoute>
             } />
             <Route path="/test-caller" element={<TestCaller />} />
