@@ -19,6 +19,9 @@ class CallSummary(BaseModel):
     caller_phone: Optional[str] = None
     caller_city: Optional[str] = None
     caller_country: Optional[str] = None
+    # Precise lat/lng when available (PWA submitted GPS) — used for the live map.
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     spam_label: Optional[str] = None
     urgency_level: Optional[str] = None
     scam_probability: Optional[int] = None
@@ -37,6 +40,17 @@ class CallContext(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: str
+
+
+class BindRoomRequest(BaseModel):
+    phone: str = Field(min_length=1)
+    room_name: str = Field(min_length=1)
+
+
+class ListenerToken(BaseModel):
+    token: str
+    room_name: str
+    livekit_url: str
 
 
 class CallFilters(BaseModel):

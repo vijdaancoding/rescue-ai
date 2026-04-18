@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Protocol
 
 from sqlalchemy.orm import Query, Session
@@ -14,6 +14,9 @@ class CallRepository(Protocol):
     def get_by_room(self, room_name: str) -> Optional[CallSession]: ...
     def get_by_caller_hash(self, caller_hash: str) -> Optional[CallSession]: ...
     def find_pending_by_phone(self, phone: str) -> Optional[CallSession]: ...
+    def find_latest_for_phone(
+        self, phone: str, *, max_age_seconds: int = 120
+    ) -> Optional[CallSession]: ...
     def create(self, **fields) -> CallSession: ...
     def save(self, call: CallSession) -> None: ...
     def list_filtered(
@@ -56,6 +59,20 @@ class SqlCallRepository:
             .filter(
                 CallSession.caller_phone == phone,
                 CallSession.status == "WaitingForCall",
+            )
+            .order_by(CallSession.start_time.desc())
+            .first()
+        )
+
+    def find_latest_for_phone(
+        self, phone: str, *, max_age_seconds: int = 120
+    ) -> Optional[CallSession]:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        return (
+            self._db.query(CallSession)
+            .filter(
+                CallSession.caller_phone == phone,
+                CallSession.start_time >= cutoff,
             )
             .order_by(CallSession.start_time.desc())
             .first()

@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import AsyncGenerator
 
@@ -117,11 +118,26 @@ def _build_instructions(location_context: dict | None) -> str:
     return _BASE_INSTRUCTIONS.format(location_instructions=_LOCATION_UNKNOWN)
 
 
+# Room names for Twilio-originated calls embed the caller's phone number,
+# assigned by the LiveKit SIP dispatch rule — e.g. "call_+923185099018_YW6a8oP2nxg6".
+# Browser-originated rooms use "call-<uuid>" (no phone, already bound via voice.py).
+_PHONE_FROM_ROOM = re.compile(r"^call_(\+\d+)_")
+
+
 async def _fetch_call_context(room_name: str) -> dict:
-    """Fetch pre-known call context (location) from the backend at agent startup."""
+    """Fetch pre-known call context (location) from the backend at agent startup.
+    For Twilio rooms we also bind this LiveKit room_name to the call_sessions
+    row keyed by phone — the webhook that created the row didn't know the room."""
+    phone_match = _PHONE_FROM_ROOM.match(room_name)
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(f"{_BACKEND_URL}/calls/context/{room_name}")
+            if phone_match:
+                r = await client.post(
+                    f"{_BACKEND_URL}/calls/bind-room",
+                    json={"phone": phone_match.group(1), "room_name": room_name},
+                )
+            else:
+                r = await client.get(f"{_BACKEND_URL}/calls/context/{room_name}")
             if r.status_code == 200:
                 return r.json()
     except Exception as exc:
@@ -173,6 +189,8 @@ class Assistant(Agent):
 
     async def _post_analysis(self) -> None:
         """POST current transcript unconditionally (used for first-turn early signal)."""
+        if not self._call_id:
+            return  # no matched call row (e.g. SIP room with no prior webhook match)
         full_transcript = " ".join(self._transcript_parts)
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -193,6 +211,8 @@ class Assistant(Agent):
             return
         if (now - self._last_analysis_at) < _COOLDOWN_SEC:
             return
+        if not self._call_id:
+            return  # no matched call row
 
         self._last_analysis_at = now
 
@@ -222,8 +242,14 @@ async def entrypoint(ctx: agents.JobContext):
     await ctx.connect()
 
     # Fetch pre-known location context for this room (set by GPS before the call).
+    # Also binds room_name to the matching call_sessions row for Twilio rooms.
     # Falls back gracefully if the endpoint is unreachable or returns nothing.
     location_context = await _fetch_call_context(ctx.room.name)
+
+    # SIP-originated calls arrive with no job metadata — lift the call_id from
+    # the bind-room response so transcript analysis posts target a valid row.
+    if not call_id:
+        call_id = location_context.get("call_id") or ""
 
     tts = upliftai.TTS(
         voice_id="v_meklc281",
