@@ -227,11 +227,28 @@ export default function LiveCall() {
     }
   }, [authToken, pinnedCallId])
 
-  // Dashboard WebSocket for AI analysis updates (filtered by current callId)
+  // Dashboard WebSocket for AI analysis updates (filtered by current callId).
+  // Subscribes the moment we know which call to watch — doesn't wait for the
+  // LiveKit room join, so we don't miss early broadcasts.
   useEffect(() => {
     const callId = activeCall?.id
-    if (!callId || status !== 'connected') return
+    if (!callId || !authToken) return
     let cleaned = false
+
+    // Seed state from REST so the page shows the latest analysis that ran
+    // BEFORE our WS subscription opened (fire-and-forget broadcasts are not
+    // replayed; without this seed, observers joining mid-call see no data).
+    void (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/analysis/${callId}/latest`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+        if (cleaned || !res.ok) return
+        const data = await res.json()
+        if (data?.type === 'analysis_update') setAnalysis(data as AnalysisData)
+      } catch { /* 404 is fine — just means no analysis has run yet */ }
+    })()
+
     const dws = new WebSocket(`${API_WS_URL}/ws/dashboard`)
     dashboardWsRef.current = dws
 
@@ -246,7 +263,7 @@ export default function LiveCall() {
     }
 
     return () => { cleaned = true; dws.close() }
-  }, [activeCall?.id, status])
+  }, [activeCall?.id, authToken])
 
   const handleStopListening = useCallback(() => {
     roomRef.current?.disconnect()
