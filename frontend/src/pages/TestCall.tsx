@@ -82,9 +82,28 @@ export default function TestCall() {
       const room = new Room()
       roomRef.current = room
 
+      // Dedupe transcription segments — LiveKit re-emits the same final segment.
+      const seenIds = new Set<string>()
       room.on(RoomEvent.TranscriptionReceived, (segments: TranscriptionSegment[]) => {
-        const finalTexts = segments.filter(s => s.final).map(s => s.text).filter(Boolean)
-        if (finalTexts.length > 0) setTranscriptLines(prev => [...prev, ...finalTexts])
+        const fresh: string[] = []
+        for (const s of segments) {
+          if (!s.final || !s.text?.trim()) continue
+          if (seenIds.has(s.id)) continue
+          seenIds.add(s.id)
+          fresh.push(s.text)
+        }
+        if (fresh.length) setTranscriptLines(prev => [...prev, ...fresh])
+      })
+
+      // If the agent / caller leaves the room (e.g. caller closed Test Caller
+      // tab), end the browser-side call immediately so the backend flips the
+      // DB row to FalseAlarm. Otherwise the /ws/call WebSocket would idle
+      // forever and the Dashboard would show a zombie "Active" call.
+      room.on(RoomEvent.Disconnected, () => {
+        if (isCleanup) return
+        try { wsRef.current?.send('end_call') } catch { /* already closed */ }
+        wsRef.current?.close()
+        setConnectionStatus('ended')
       })
 
       try {
