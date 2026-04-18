@@ -221,3 +221,6 @@ frontend/node_modules
 # ML models 
 models/
 .models_downloaded
+
+# Tests 
+test-results.xml

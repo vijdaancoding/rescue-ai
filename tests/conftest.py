@@ -10,6 +10,14 @@ This file provides:
 """
 
 import os
+
+# Set required env vars before any app imports so Settings() doesn't fail in CI.
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")
+os.environ.setdefault("LIVEKIT_URL", "ws://localhost:7880")
+os.environ.setdefault("LIVEKIT_API_KEY", "devkey")
+os.environ.setdefault("LIVEKIT_API_SECRET", "devsecret")
+
 import uuid
 from datetime import datetime, timezone
 from typing import Generator
